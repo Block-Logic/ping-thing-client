@@ -2,6 +2,9 @@
 Node JS Client to Contribute Ping Times to the Validators.app Ping Thing
 
 ## Install notes
+`git clone https://github.com/Block-Logic/ping-thing-client.git`
+`cd ping-thing-client/`
+
 Try `yarn install`. If that doesn't work, use:
 `yarn add @solana/web3.js`
 `yarn add dotenv`

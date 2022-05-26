@@ -1,6 +1,10 @@
 # This is a simple script which will accept a Solana keypair JSON file and
 # convert it to base58 for the .env file.
 #
+# Gems:
+#   gem install base58
+#   gem install json
+#
 # Usage:
 #   ruby keypair_to_base58.rb keypair-file.json
 require_relative 'base58'
