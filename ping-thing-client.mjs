@@ -1,5 +1,5 @@
 // Sample use:
-// node ping-thing-client.js >> ping-thing.log &
+// node ping-thing-client.mjs >> ping-thing.log &
 
 import dotenv from "dotenv";
 import web3 from '@solana/web3.js';
@@ -9,7 +9,7 @@ import XMLHttpRequest from 'xhr2';
 // Read constants from .env
 dotenv.config();
 const RPC_ENDPOINT = process.env.RPC_ENDPOINT;
-const USER_PRIVATE_KEY = bs58.decode(process.env.WALLET_PRIVATE_KEY);
+const USER_PRIVATE_KEY = bs58.decode(process.env.WALLET_PRIVATE_KEYPAIR);
 const USER_KEYPAIR = web3.Keypair.fromSecretKey(USER_PRIVATE_KEY);
 const SLEEP_MS = process.env.SLEEP_MS;
 const VA_API_KEY = process.env.VA_API_KEY;
