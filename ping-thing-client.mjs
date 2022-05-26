@@ -1,5 +1,5 @@
 // Sample use:
-// node ping-thing-client.mjs >> ping-thing.log &
+// node ping-thing-client.mjs >> ping-thing.log  2>&1 &
 
 import dotenv from "dotenv";
 import web3 from '@solana/web3.js';
@@ -48,7 +48,6 @@ while(true) {
 
     if (VERBOSE_LOG === true) console.log(`tx: ${JSON.stringify(signature)}`);
 
-    // curl_command = "curl -s -X POST -H \"Token: #{va_token}\" -H \"Content-Type: application/json\" -d '{\"time\": #{time_ms}, \"signature\": \"#{signature}\", \"transaction_type\": \"transfer\", \"success\": #{success}, \"application\": \"CLI\", \"commitment_level\": \"confirmed\"}' https://www.validators.app/api/v1/ping-thing/mainnet"
     const response = new XMLHttpRequest();
     const payload = JSON.stringify({
       time: txElapsedMs,
@@ -61,6 +60,7 @@ while(true) {
 
     if (VERBOSE_LOG === true) console.log(payload, '\n');
 
+    // Send the ping data to validators.app
     response.open(
       "POST",
       'https://www.validators.app/api/v1/ping-thing/mainnet'
@@ -80,6 +80,7 @@ while(true) {
     await new Promise(r => setTimeout(r, SLEEP_MS));
 
     // TODO -- Sample Errors to catch:
+    // TransactionExpiredBlockheightExceededError: Signature vxvewmXNthUacKXHaAu9XyduSgJ5DiVFS2UqzM1Q8z5D1cUZAKvXGZDhzDW9kn2mqADjfwy4iBExE1Je1im72AA has expired: block height exceeded.
     // SendTransactionError: failed to send transaction: Transaction simulation failed: This transaction has already been processed
     // (node:9231) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 SIGINT listeners added to [process]. Use emitter.setMaxListeners() to increase limit
   } catch (e) {
