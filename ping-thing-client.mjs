@@ -64,8 +64,28 @@ while(true) {
       // TODO -- Sample Errors to catch:
       // TransactionExpiredBlockheightExceededError: Signature vxvewmXNthUacKXHaAu9XyduSgJ5DiVFS2UqzM1Q8z5D1cUZAKvXGZDhzDW9kn2mqADjfwy4iBExE1Je1im72AA has expired: block height exceeded.
       // SendTransactionError: failed to send transaction: Transaction simulation failed: This transaction has already been processed
-      console.log('\n', e, '\n');
+
+      if (e.message.includes('new blockhash')) {
+        console.log('ERROR: Unable to obtain a new blockhash');
+        continue;
+      }
+
+      if (e.message.includes('Blockhash not found')) {
+        console.log('ERROR: Blockhash not found');
+        continue;
+      }
+
+      if (e.name == 'TransactionExpiredBlockheightExceededError') {
+        console.log('ERROR: Blockhash expired/block height exceeded.');
+        continue;
+      }
+
+      console.log('TX ERROR:');
+      console.log(e);
+      console.log(e.message);
+      console.log(JSON.stringify(e));
       var txSuccess = false;
+      var signature = '';
     } finally {
       var txEnd = new Date();
     }
