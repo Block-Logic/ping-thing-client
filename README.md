@@ -22,3 +22,6 @@ In the .env file, try `VERBOSE_LOG=true` to see log output the first time you ru
 You can start the script & push it to the background with `node ping-thing-client.mjs >> ping-thing.log &`.
 
 Look for an example service file in this repo soon.
+
+### Misc Notes
+https://www.digitalocean.com/community/tutorials/how-to-install-node-js-on-ubuntu-20-04
