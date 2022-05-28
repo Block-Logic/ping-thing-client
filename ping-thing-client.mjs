@@ -10,7 +10,7 @@ import XMLHttpRequest from 'xhr2';
 process.on(
   'SIGINT',
   function() {
-    console.log(`Caught interrupt signal at ${new Date()}`, '\n');
+    console.log(`${new Date().toISOString()} Caught interrupt signal`, '\n');
     process.exit();
   }
 );
@@ -29,8 +29,8 @@ const VERBOSE_LOG = process.env.VERBOSE_LOG;
 
 // Set up web3 client
 const walletAccount = new web3.PublicKey(USER_KEYPAIR.publicKey);
-const connection = new web3.Connection(RPC_ENDPOINT, 'confirmed');
 const commitmentLevel = 'confirmed';
+const connection = new web3.Connection(RPC_ENDPOINT, commitmentLevel);
 
 // Set up our REST client
 const restClient = new XMLHttpRequest();
@@ -45,7 +45,7 @@ tx.add(
   })
 );
 
-if (VERBOSE_LOG === 'true') console.log(`Starting script at ${new Date()}`);
+if (VERBOSE_LOG === 'true') console.log(`${new Date().toISOString()} Starting script`);
 
 // Run inside a loop that will exit after 3 consecutive failures
 var tryCount = 0;
@@ -102,7 +102,7 @@ while(true) {
     });
 
     if (VERBOSE_LOG === 'true') {
-      console.log(`${new Date().toISOString()} => ${payload}`);
+      console.log(`${new Date().toISOString()} ${payload}`);
     }
 
     // Send the ping data to validators.app
@@ -123,4 +123,4 @@ while(true) {
   }
 }
 
-if (VERBOSE_LOG === 'true') console.log(`Ending script at ${new Date()}`, '\n');
+if (VERBOSE_LOG === 'true') console.log(`${new Date().toISOString()} Ending script`, '\n');
