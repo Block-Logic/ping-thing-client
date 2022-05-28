@@ -23,6 +23,8 @@ const USER_KEYPAIR = web3.Keypair.fromSecretKey(
                      );
 const SLEEP_MS = process.env.SLEEP_MS;
 const VA_API_KEY = process.env.VA_API_KEY;
+// process.env.VERBOSE_LOG returns a string. We show the verbose logs if the
+// value is 'true'
 const VERBOSE_LOG = process.env.VERBOSE_LOG;
 
 // Set up web3 client
@@ -43,7 +45,7 @@ tx.add(
   })
 );
 
-if (VERBOSE_LOG === true) console.log(`Starting script at ${new Date()}`, '\n');
+if (VERBOSE_LOG === 'true') console.log(`Starting script at ${new Date()}`);
 
 // Run inside a loop that will exit after 3 consecutive failures
 var tryCount = 0;
@@ -61,29 +63,27 @@ while(true) {
       );
       var txSuccess = true;
     } catch (e) {
-      // TODO -- Sample Errors to catch:
-      // TransactionExpiredBlockheightExceededError: Signature vxvewmXNthUacKXHaAu9XyduSgJ5DiVFS2UqzM1Q8z5D1cUZAKvXGZDhzDW9kn2mqADjfwy4iBExE1Je1im72AA has expired: block height exceeded.
-      // SendTransactionError: failed to send transaction: Transaction simulation failed: This transaction has already been processed
-
+      // Log and loop if we got a bad blockhash.
       if (e.message.includes('new blockhash')) {
-        console.log('ERROR: Unable to obtain a new blockhash');
+        console.log(`${new Date().toISOString()} ERROR: Unable to obtain a new blockhash`);
+        continue;
+      } else if (e.message.includes('Blockhash not found')) {
+        console.log(`${new Date().toISOString()} ERROR: Blockhash not found`);
         continue;
       }
 
-      if (e.message.includes('Blockhash not found')) {
-        console.log('ERROR: Blockhash not found');
-        continue;
-      }
-
+      // If the transaction expired on the chain. Make a log entry and send
+      // to VA. Otherwise log and loop.
       if (e.name == 'TransactionExpiredBlockheightExceededError') {
-        console.log('ERROR: Blockhash expired/block height exceeded.');
+        console.log(`${new Date().toISOString()} ERROR: Blockhash expired/block height exceeded. TX failure sent to VA.`);
+      } else {
+        console.log(`${new Date().toISOString()} ERROR: ${e.name}`);
+        console.log(e.message);
+        console.log(e);
+        console.log(JSON.stringify(e));
         continue;
       }
 
-      console.log('TX ERROR:');
-      console.log(e);
-      console.log(e.message);
-      console.log(JSON.stringify(e));
       var txSuccess = false;
       var signature = '';
     } finally {
@@ -101,7 +101,7 @@ while(true) {
       commitment_level: commitmentLevel
     });
 
-    if (VERBOSE_LOG === true) {
+    if (VERBOSE_LOG === 'true') {
       console.log(`${new Date().toISOString()} => ${payload}`);
     }
 
@@ -123,4 +123,4 @@ while(true) {
   }
 }
 
-if (VERBOSE_LOG === true) console.log(`Ending script at ${new Date()}`, '\n');
+if (VERBOSE_LOG === 'true') console.log(`Ending script at ${new Date()}`, '\n');
