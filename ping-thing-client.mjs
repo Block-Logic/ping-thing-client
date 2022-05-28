@@ -85,7 +85,7 @@ while(true) {
       }
 
       var txSuccess = false;
-      var signature = '';
+      var signature = 'Not Available';
     } finally {
       var txEnd = new Date();
     }
