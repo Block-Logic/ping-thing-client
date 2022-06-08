@@ -23,9 +23,8 @@ const USER_KEYPAIR = web3.Keypair.fromSecretKey(
                      );
 const SLEEP_MS = process.env.SLEEP_MS;
 const VA_API_KEY = process.env.VA_API_KEY;
-// process.env.VERBOSE_LOG returns a string. We show the verbose logs if the
-// value is 'true'
-const VERBOSE_LOG = process.env.VERBOSE_LOG;
+// process.env.VERBOSE_LOG returns a string. e.g. 'true'
+const VERBOSE_LOG = process.env.VERBOSE_LOG === 'true' ? true : false;
 
 // Set up web3 client
 const walletAccount = new web3.PublicKey(USER_KEYPAIR.publicKey);
@@ -45,7 +44,7 @@ tx.add(
   })
 );
 
-if (VERBOSE_LOG === 'true') console.log(`${new Date().toISOString()} Starting script`);
+if (VERBOSE_LOG) console.log(`${new Date().toISOString()} Starting script`);
 
 // Run inside a loop that will exit after 3 consecutive failures
 var tryCount = 0;
@@ -84,8 +83,9 @@ while(true) {
         continue;
       }
 
+      // Need to submit a fake signature to pass the import filters
+      var signature = '9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999';
       var txSuccess = false;
-      var signature = 'Not Available';
     } finally {
       var txEnd = new Date();
     }
@@ -101,7 +101,7 @@ while(true) {
       commitment_level: commitmentLevel
     });
 
-    if (VERBOSE_LOG === 'true') {
+    if (VERBOSE_LOG) {
       console.log(`${new Date().toISOString()} ${payload}`);
     }
 
@@ -123,4 +123,4 @@ while(true) {
   }
 }
 
-if (VERBOSE_LOG === 'true') console.log(`${new Date().toISOString()} Ending script`, '\n');
+if (VERBOSE_LOG) console.log(`${new Date().toISOString()} Ending script`, '\n');
