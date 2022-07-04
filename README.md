@@ -19,7 +19,7 @@ After retrieving your API key, copy & paste it into the VA_API_KEY attribute of 
 In the .env file, try `VERBOSE_LOG=true` to see log output the first time you run the script. After saving your .env file, try running the script with `node ping-thing-client.mjs` and watch the output if you set verbose mode = true. I use `VERBOSE_LOG=false` in production to minimize log noise.
 
 ## Running the Ping Thing Script
-You can start the script & push it to the background with `node ping-thing-client.mjs >> ping-thing.log &`.
+You can start the script & push it to the background with `node ping-thing-client.mjs >> ping-thing.log 2>&1 &`.
 
 Look for an example service file in this repo soon.
 
