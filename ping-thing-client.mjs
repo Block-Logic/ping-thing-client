@@ -36,6 +36,11 @@ const restClient = new XMLHttpRequest();
 
 // Setup our transaction
 const tx = new web3.Transaction();
+tx.add( 
+  web3.ComputeBudgetProgram.setComputeUnitLimit({ 
+    units: 5000 
+  })
+);
 tx.add(
   web3.SystemProgram.transfer({
     fromPubkey: USER_KEYPAIR.publicKey,
