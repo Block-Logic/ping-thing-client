@@ -42,11 +42,11 @@ const tx = new web3.Transaction();
 //   })
 // );
 
-// tx.add(
-//   web3.ComputeBudgetProgram.setComputeUnitPrice({ 
-//   microLamports: 1
-//   })
-// );
+tx.add(
+  web3.ComputeBudgetProgram.setComputeUnitPrice({ 
+  microLamports: 3
+  })
+);
 
 tx.add(
   web3.SystemProgram.transfer({
