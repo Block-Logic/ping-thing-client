@@ -80,8 +80,8 @@ while( uninterrupted ) {
   slot_landed = undefined;
 
   try {
-    // Get the current slot
-    slot_sent = await connection.getSlot(commitmentLevel);
+    // Get the current slot being processed
+    slot_sent = await connection.getSlot('processed');
 
     // Send the TX to the cluster
     const txStart = new Date();
