@@ -42,6 +42,7 @@ const tx = new web3.Transaction();
 //   })
 // );
 
+// Remove this to drop the Prioritization Fee.
 tx.add(
   web3.ComputeBudgetProgram.setComputeUnitPrice({ 
   microLamports: 3
