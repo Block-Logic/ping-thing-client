@@ -25,10 +25,10 @@ const SLEEP_MS = process.env.SLEEP_MS;
 const VA_API_KEY = process.env.VA_API_KEY;
 // process.env.VERBOSE_LOG returns a string. e.g. 'true'
 const VERBOSE_LOG = process.env.VERBOSE_LOG === 'true' ? true : false;
+const commitmentLevel = process.env.COMMITMENT || 'confirmed';
 
 // Set up web3 client
 // const walletAccount = new web3.PublicKey(USER_KEYPAIR.publicKey);
-const commitmentLevel = 'confirmed';
 const connection = new web3.Connection(RPC_ENDPOINT, commitmentLevel);
 
 // Set up our REST client
@@ -80,7 +80,7 @@ while( uninterrupted ) {
 
   try {
     // Get the current slot
-    slot_sent = await connection.getSlot();
+    slot_sent = await connection.getSlot(commitmentLevel);
 
     // Send the TX to the cluster
     const txStart = new Date();
