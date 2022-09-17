@@ -63,16 +63,25 @@ let tryCount = 0;
 const maxTries = 3;
 
 // Pre-define loop constants & variables
+const fakeSignature = '9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999';
+let uninterrupted = true;
 let signature = undefined;
 let txSuccess = undefined;
-const uninterrupted = true;
+let slot_sent = undefined;
+let slot_landed = undefined;
 
 // Loop until interrupted
 while( uninterrupted ) {
   // reset these on each loop:
   signature = undefined;
   txSuccess = undefined;
+  slot_sent = undefined;
+  slot_landed = undefined;
+
   try {
+    // Get the current slot
+    slot_sent = await connection.getSlot();
+
     // Send the TX to the cluster
     const txStart = new Date();
     try {
@@ -106,11 +115,18 @@ while( uninterrupted ) {
       }
 
       // Need to submit a fake signature to pass the import filters
-      signature = '9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999';
+      signature = fakeSignature;
       txSuccess = false;
     } 
     const txEnd = new Date();
     const txElapsedMs = txEnd - txStart;
+
+    // console.log(signature);
+    if (signature !== fakeSignature){
+      // Capture the slot_landed
+      let tx_landed = await connection.getTransaction(signature);
+      slot_landed = tx_landed.slot;
+    }
 
     // prepare the payload to send to validators.app
     const payload = JSON.stringify({
@@ -119,7 +135,9 @@ while( uninterrupted ) {
       transaction_type: 'transfer',
       success: txSuccess,
       application: 'web3',
-      commitment_level: commitmentLevel
+      commitment_level: commitmentLevel,
+      slot_sent: slot_sent,
+      slot_landed: slot_landed
     });
 
     if (VERBOSE_LOG) {
