@@ -1,5 +1,6 @@
 # JSON files
 *.json
+*.csv
 
 # Logs
 logs
