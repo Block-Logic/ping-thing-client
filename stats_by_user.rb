@@ -9,6 +9,7 @@
 #
 # Usage:
 #   ruby stats_by_user.rb [limit (integer, default 1000)]
+require 'csv'
 require 'dotenv'
 require 'json'
 require 'validators_app_ruby'
@@ -20,7 +21,9 @@ csv_file = 'stats_by_user.csv'
 
 va = ValidatorsAppRuby.new(token: ENV['VA_API_KEY'])
 rows = va.get_ping_thing(network: "mainnet", limit: limit)
+puts "#{rows.count} rows"
 
+# Add a couple of helper methods
 module StatsLogic
   def array_average(array)
     return nil unless array.is_a? Array
@@ -41,6 +44,7 @@ module StatsLogic
 end
 include StatsLogic
 
+# Accumulate data for the statistical calculations
 stats = {}
 rows.each do |row|
   stats[row['username']] = {
@@ -52,19 +56,18 @@ rows.each do |row|
   stats[row['username']][:confirmation_times] << row['response_time']
 end
 
-# puts ''
-# puts stats.inspect
-ltcy_width = 17
-conf_width = 15
+ltcy_width = 16
+conf_width = 13
 output_fields = [
   'user name'.ljust(20, ' '),
   'avg slot ltncy'.rjust(ltcy_width, ' '),
   'med slot ltncy'.rjust(ltcy_width, ' '),
-  'avg conf time'.rjust(conf_width, ' '),
-  'med conf time'.rjust(conf_width, ' ')
+  'avg conf ms'.rjust(conf_width, ' '),
+  'med conf ms'.rjust(conf_width, ' ')
 ]
 puts ''
 puts "#{output_fields.join('')}"
+# Open a CSV file for writing
 CSV.open(csv_file, 'wb') do |csv|
   csv << output_fields.map{ |f| f.strip }
 
@@ -76,7 +79,6 @@ CSV.open(csv_file, 'wb') do |csv|
     slot_latency_med = array_median(v[:slot_latencies])
                       .to_s
                       .rjust(ltcy_width, ' ')
-
     avg_conf_time    = (v[:confirmation_times].sum/v[:confirmation_times].length)
                       .to_s
                       .rjust(conf_width, ' ')
@@ -84,6 +86,7 @@ CSV.open(csv_file, 'wb') do |csv|
                       .to_i
                       .to_s
                       .rjust(conf_width, ' ')
+
     csv << [k,slot_latency_avg,slot_latency_med,avg_conf_time,conf_time_med].map{|f| f.strip}
     puts "#{k.ljust(20, ' ')}#{slot_latency_avg}#{slot_latency_med}#{avg_conf_time}#{conf_time_med}"
   end
