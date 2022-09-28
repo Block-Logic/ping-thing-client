@@ -60,6 +60,7 @@ ltcy_width = 16
 conf_width = 13
 output_fields = [
   'user name'.ljust(20, ' '),
+  'count'.rjust(6, ' '),
   'avg slot ltncy'.rjust(ltcy_width, ' '),
   'med slot ltncy'.rjust(ltcy_width, ' '),
   'avg conf ms'.rjust(conf_width, ' '),
@@ -72,6 +73,7 @@ CSV.open(csv_file, 'wb') do |csv|
   csv << output_fields.map{ |f| f.strip }
 
   stats.sort.each do |k,v|
+    row_count = v[:slot_latencies].length.to_s.rjust(6, ' ')
     slot_latency_avg = (v[:slot_latencies].sum/v[:slot_latencies].length.to_f)
                       .round(1)
                       .to_s
@@ -87,8 +89,8 @@ CSV.open(csv_file, 'wb') do |csv|
                       .to_s
                       .rjust(conf_width, ' ')
 
-    csv << [k,slot_latency_avg,slot_latency_med,avg_conf_time,conf_time_med].map{|f| f.strip}
-    puts "#{k.ljust(20, ' ')}#{slot_latency_avg}#{slot_latency_med}#{avg_conf_time}#{conf_time_med}"
+    csv << [k, row_count, slot_latency_avg,slot_latency_med,avg_conf_time,conf_time_med].map{|f| f.strip}
+    puts "#{k.ljust(20, ' ')}#{row_count}#{slot_latency_avg}#{slot_latency_med}#{avg_conf_time}#{conf_time_med}"
   end
 end
 puts ''
