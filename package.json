@@ -1,6 +1,6 @@
 {
   "dependencies": {
-    "@solana/web3.js": "^1.66.1",
+    "@solana/web3.js": "^1.73.2",
     "dotenv": "^16.0.3",
     "install": "^0.13.0",
     "xhr2": "^0.2.1"
