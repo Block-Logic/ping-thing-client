@@ -49,7 +49,7 @@ if (usePriorityFee) {
 
   tx.add(
     web3.ComputeBudgetProgram.setComputeUnitPrice({ 
-    microLamports: process.env.PRIO_FEE_MICRO_LAMPORTS || 3
+    microLamports: process.env.PRIORITY_FEE_MICRO_LAMPORTS || 3
     })
   );
 }
