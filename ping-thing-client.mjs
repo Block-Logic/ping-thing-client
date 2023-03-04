@@ -21,11 +21,14 @@ const RPC_ENDPOINT = process.env.RPC_ENDPOINT;
 const USER_KEYPAIR = web3.Keypair.fromSecretKey(
   bs58.decode(process.env.WALLET_PRIVATE_KEYPAIR)
 );
-const SLEEP_MS = process.env.SLEEP_MS;
+
+const sleepMsRpc = process.env.SLEEP_MS_RPC || 2000;
+const sleepMsLoop = process.env.SLEEP_MS_LOOP || 0;
 const VA_API_KEY = process.env.VA_API_KEY;
 // process.env.VERBOSE_LOG returns a string. e.g. 'true'
 const VERBOSE_LOG = process.env.VERBOSE_LOG === 'true' ? true : false;
 const commitmentLevel = process.env.COMMITMENT || 'confirmed';
+const usePriorityFee = process.env.USE_PRIORITY_FEE == 'true' ? true : false;
 
 // Set up web3 client
 // const walletAccount = new web3.PublicKey(USER_KEYPAIR.publicKey);
@@ -36,18 +39,20 @@ const restClient = new XMLHttpRequest();
 
 // Setup our transaction
 const tx = new web3.Transaction();
-tx.add( 
-  web3.ComputeBudgetProgram.setComputeUnitLimit({ 
-    units: 5000 
-  })
-);
 
-// Remove this to drop the Prioritization Fee.
-tx.add(
-  web3.ComputeBudgetProgram.setComputeUnitPrice({ 
-  microLamports: 3
-  })
-);
+if (usePriorityFee) {
+  tx.add( 
+    web3.ComputeBudgetProgram.setComputeUnitLimit({ 
+      units: process.env.CU_BUDGET || 5000
+    })
+  );
+
+  tx.add(
+    web3.ComputeBudgetProgram.setComputeUnitPrice({ 
+    microLamports: process.env.PRIORITY_FEE_MICRO_LAMPORTS || 3
+    })
+  );
+}
 
 tx.add(
   web3.SystemProgram.transfer({
@@ -68,20 +73,20 @@ const fakeSignature = '999999999999999999999999999999999999999999999999999999999
 let uninterrupted = true;
 let signature = undefined;
 let txSuccess = undefined;
-let slot_sent = undefined;
-let slot_landed = undefined;
+let slotSent = undefined;
+let slotLanded = undefined;
 
 // Loop until interrupted
 while( uninterrupted ) {
   // reset these on each loop:
   signature = undefined;
   txSuccess = undefined;
-  slot_sent = undefined;
-  slot_landed = undefined;
+  slotSent = undefined;
+  slotLanded = undefined;
 
   try {
     // Get the current slot being processed
-    slot_sent = await connection.getSlot('processed');
+    slotSent = await connection.getSlot('processed');
 
     // Send the TX to the cluster
     const txStart = new Date();
@@ -122,11 +127,14 @@ while( uninterrupted ) {
     const txEnd = new Date();
     const txElapsedMs = txEnd - txStart;
 
+    // Sleep a little here to ensure the signature is on an RPC node.
+    await new Promise(r => setTimeout(r, sleepMsRpc));
+
     // console.log(signature);
     if (signature !== fakeSignature){
-      // Capture the slot_landed
-      let tx_landed = await connection.getTransaction(signature);
-      slot_landed = tx_landed.slot;
+      // Capture the slotLanded
+      let txLanded = await connection.getTransaction(signature);
+      slotLanded = txLanded.slot;
     }
 
     // prepare the payload to send to validators.app
@@ -137,8 +145,8 @@ while( uninterrupted ) {
       success: txSuccess,
       application: 'web3',
       commitment_level: commitmentLevel,
-      slot_sent: slot_sent,
-      slot_landed: slot_landed
+      slotSent: slotSent,
+      slotLanded: slotLanded
     });
 
     if (VERBOSE_LOG) {
@@ -154,9 +162,9 @@ while( uninterrupted ) {
     restClient.setRequestHeader('Token', VA_API_KEY);
     restClient.send(payload);
 
-    // Reset the try counter and sleep
+    // Reset the try counter and sleep between loops
     tryCount = 0;
-    await new Promise(r => setTimeout(r, SLEEP_MS));
+    await new Promise(r => setTimeout(r, sleepMsLoop));
   } catch (e) {
     console.log('\n', e, '\n');
     if (++tryCount === maxTries) throw e;
