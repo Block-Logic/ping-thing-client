@@ -145,8 +145,8 @@ while( uninterrupted ) {
       success: txSuccess,
       application: 'web3',
       commitment_level: commitmentLevel,
-      slotSent: slotSent,
-      slotLanded: slotLanded
+      slot_sent: slotSent,
+      slot_landed: slotLanded
     });
 
     if (VERBOSE_LOG) {
