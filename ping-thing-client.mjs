@@ -80,20 +80,29 @@ let slotLanded = undefined;
 // so we can get the latest slot number
 const connProcessed = new web3.Connection(RPC_ENDPOINT, 'processed');
 let latestSlot = 0;
-const subscriptionId = connProcessed.onSlotChange(slotInfo => {
-  latestSlot = slotInfo.slot;
-});
+try {
+  const subscriptionId = connProcessed.onSlotChange(slotInfo => {
+    latestSlot = slotInfo.slot;
+  });
+} catch (e) {
+  const subscriptionId = connProcessed.onSlotChange(slotInfo => {
+    latestSlot = slotInfo.slot;
+  });
+}
 
 // Restart the subscriptionId if it fails
-subscriptionId.catch(err => {
-  console.log(`${new Date().toISOString()} ERROR: ${err}`);
-  console.log(err);
-  console.log(JSON.stringify(err));
-  subscriptionId.unsubscribe();
-  subscriptionId = connProcessed.onSlotChange(slotInfo => {
-    latestSlot = slotInfo.slot;
-  }
-);
+// TypeError: subscriptionId.catch is not a function
+
+// subscriptionId.catch(err => {
+//   console.log(`${new Date().toISOString()} ERROR: ${err}`);
+//   console.log(err);
+//   console.log(JSON.stringify(err));
+//   subscriptionId.unsubscribe();
+//   subscriptionId = connProcessed.onSlotChange(slotInfo => {
+//       latestSlot = slotInfo.slot;
+//     }
+//   );
+// });
 
 // Sleep for a second to let the subscription get started
 await new Promise(r => setTimeout(r, 1000));
@@ -108,8 +117,9 @@ while( uninterrupted ) {
 
   try {
     // Get the current slot being processed
-    slotSent = await connection.getSlot('processed');
-    console.log(`${latestSlot} ${slotSent};`)
+    slotSent = latestSlot;
+    // slotSent = await connection.getSlot('processed');
+    // console.log(`${latestSlot} ${slotSent};`)
 
     // Send the TX to the cluster
     const txStart = new Date();
