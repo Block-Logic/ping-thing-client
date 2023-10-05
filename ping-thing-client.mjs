@@ -76,30 +76,20 @@ let txSuccess = undefined;
 let slotSent = undefined;
 let slotLanded = undefined;
 
-// create a service to subscribeSlot in the background and update a global variable
+// Create a connection to subscribe onSlotChange in the background and update a global variable
 // so we can get the latest slot number
 const connProcessed = new web3.Connection(RPC_ENDPOINT, 'processed');
 let latestSlot = 0;
-const subscriptionId = connProcessed.onSlotChange(slotInfo => {
-  latestSlot = slotInfo.slot;
-});
-
-// Automatically restart connProcessed if it fails
-try {
-  const subscriptionId = connProcessed.onSlotChange(slotInfo => {
-    latestSlot = slotInfo.slot;
-  });
-} catch (e) {
-  const subscriptionId = connProcessed.onSlotChange(slotInfo => {
-    latestSlot = slotInfo.slot;
-  });
-}
-
-// Sleep for two seconds to let the subscription get started
-await new Promise(r => setTimeout(r, 2000));
 
 // Loop until interrupted
 while( uninterrupted ) {
+  // Create a subscription to the processed RPC endpoint
+  const subscriptionId = connProcessed.onSlotChange(slotInfo => {
+    latestSlot = slotInfo.slot;
+  });
+  // Sleep before the next loop and to let the subscription get warmed up
+  await new Promise(r => setTimeout(r, sleepMsLoop));
+
   // continue if latestSlot is zero, undefined, or if the latestSlot is less than the slotSent
   if (latestSlot === 0 || latestSlot === undefined || latestSlot < slotSent) {
     console.log(`${new Date().toISOString()} Waiting for latestSlot to be updated...`);
@@ -113,7 +103,7 @@ while( uninterrupted ) {
   slotLanded = undefined;
 
   try {
-    // Get the current slot being processed
+    // Set the current slot being processed
     slotSent = latestSlot;
 
     // Send the TX to the cluster
@@ -125,6 +115,7 @@ while( uninterrupted ) {
         [USER_KEYPAIR],
         { commitment: commitmentLevel }
       );
+      
       txSuccess = true;
     } catch (e) {
       // Log and loop if we get a bad blockhash.
@@ -190,12 +181,13 @@ while( uninterrupted ) {
     restClient.setRequestHeader('Token', VA_API_KEY);
     restClient.send(payload);
 
-    // Reset the try counter and sleep between loops
+    // Reset the try counter
     tryCount = 0;
-    await new Promise(r => setTimeout(r, sleepMsLoop));
   } catch (e) {
-    console.log('\n', e, '\n');
+    console.log(`${new Date().toISOString()} ERROR: ${e.name}`);
+    console.log(`${new Date().toISOString()} ERROR: ${e.message}`);
     if (++tryCount === maxTries) throw e;
   }
+  // close the subscription
+  connProcessed.removeSlotChangeListener(subscriptionId);
 }
-subscriptionId.unsubscribe();
