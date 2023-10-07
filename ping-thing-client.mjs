@@ -113,7 +113,7 @@ while( uninterrupted ) {
         connection,
         tx,
         [USER_KEYPAIR],
-        { commitment: commitmentLevel }
+        { commitment: commitmentLevel, skipPreflight: true }
       );
       
       txSuccess = true;
