@@ -19,104 +19,98 @@ const USER_KEYPAIR = web3.Keypair.fromSecretKey(
   bs58.decode(process.env.WALLET_PRIVATE_KEYPAIR),
 );
 
-const sleepMsRpc = process.env.SLEEP_MS_RPC || 2000;
-const sleepMsLoop = process.env.SLEEP_MS_LOOP || 0;
+const SLEEP_MS_RPC = process.env.SLEEP_MS_RPC || 2000;
+const SLEEP_MS_LOOP = process.env.SLEEP_MS_LOOP || 0;
 const VA_API_KEY = process.env.VA_API_KEY;
 // process.env.VERBOSE_LOG returns a string. e.g. 'true'
 const VERBOSE_LOG = process.env.VERBOSE_LOG === "true" ? true : false;
-const commitmentLevel = process.env.COMMITMENT || "confirmed";
-const usePriorityFee = process.env.USE_PRIORITY_FEE == "true" ? true : false;
+const COMMITMENT_LEVEL = process.env.COMMITMENT || "confirmed";
+const USE_PRIORITY_FEE = process.env.USE_PRIORITY_FEE == "true" ? true : false;
 
 // Set up web3 client
 // const walletAccount = new web3.PublicKey(USER_KEYPAIR.publicKey);
-const connection = new web3.Connection(RPC_ENDPOINT, commitmentLevel);
+const connection = new web3.Connection(RPC_ENDPOINT, COMMITMENT_LEVEL);
 
 // Set up our REST client
 const restClient = new XMLHttpRequest();
 
-// Setup our transaction
-const tx = new web3.Transaction();
-
-if (usePriorityFee) {
-  tx.add(
-    web3.ComputeBudgetProgram.setComputeUnitLimit({
-      units: process.env.CU_BUDGET || 5000,
-    }),
-  );
-
-  tx.add(
-    web3.ComputeBudgetProgram.setComputeUnitPrice({
-      microLamports: process.env.PRIORITY_FEE_MICRO_LAMPORTS || 3,
-    }),
-  );
-}
-
-tx.add(
-  web3.SystemProgram.transfer({
-    fromPubkey: USER_KEYPAIR.publicKey,
-    toPubkey: USER_KEYPAIR.publicKey,
-    lamports: 5000,
-  }),
-);
-
 if (VERBOSE_LOG) console.log(`${new Date().toISOString()} Starting script`);
 
-// Run inside a loop that will exit after 3 consecutive failures
-let tryCount = 0;
-const maxTries = 3;
-
 // Pre-define loop constants & variables
-const fakeSignature =
+const FAKE_SIGNATURE =
   "9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999";
-let uninterrupted = true;
-let signature = undefined;
-let txSuccess = undefined;
-let slotSent = undefined;
-let slotLanded = undefined;
 
-// Create a connection to subscribe onSlotChange in the background and update a global variable
-// so we can get the latest slot number
-const connProcessed = new web3.Connection(RPC_ENDPOINT, "processed");
-let latestSlot = 0;
+// Run inside a loop that will exit after 3 consecutive failures
+const MAX_TRIES = 3;
+let tryCount = 0;
 
 // Loop until interrupted
-while (uninterrupted) {
-  // Create a subscription to the processed RPC endpoint
-  const subscriptionId = connProcessed.onSlotChange((slotInfo) => {
-    latestSlot = slotInfo.slot;
-  });
-  // Sleep before the next loop and to let the subscription get warmed up
-  await new Promise((r) => setTimeout(r, sleepMsLoop));
-
-  // continue if latestSlot is zero, undefined, or if the latestSlot is less than the slotSent
-  if (latestSlot === 0 || latestSlot === undefined || latestSlot < slotSent) {
-    console.log(
-      `${new Date().toISOString()} Waiting for latestSlot to be updated...`,
-    );
-    continue;
+for (let i = 0; ; ++i) {
+  // Sleep before the next loop
+  if (i > 0) {
+    await new Promise((resolve) => setTimeout(resolve, SLEEP_MS_LOOP));
   }
 
-  // reset these on each loop:
-  signature = undefined;
-  txSuccess = undefined;
-  slotSent = undefined;
-  slotLanded = undefined;
-
   try {
-    // Set the current slot being processed
-    slotSent = latestSlot;
+    let slotSent;
+    let slotLanded;
+    let signature;
+    let txStart;
 
-    // Send the TX to the cluster
-    const txStart = new Date();
     try {
-      signature = await web3.sendAndConfirmTransaction(
-        connection,
-        tx,
-        [USER_KEYPAIR],
-        { commitment: commitmentLevel, skipPreflight: true },
+      const [blockhash, slotProcessed] = await Promise.all([
+        connection.getLatestBlockhash("finalized"),
+        connection.getSlot("processed"),
+      ]);
+      slotSent = slotProcessed;
+
+      // Setup our transaction
+      const tx = new web3.Transaction();
+
+      if (USE_PRIORITY_FEE) {
+        tx.add(
+          web3.ComputeBudgetProgram.setComputeUnitLimit({
+            units: process.env.CU_BUDGET || 5000,
+          }),
+          web3.ComputeBudgetProgram.setComputeUnitPrice({
+            microLamports: process.env.PRIORITY_FEE_MICRO_LAMPORTS || 3,
+          }),
+        );
+      }
+
+      tx.add(
+        web3.SystemProgram.transfer({
+          fromPubkey: USER_KEYPAIR.publicKey,
+          toPubkey: USER_KEYPAIR.publicKey,
+          lamports: 5000,
+        }),
       );
 
-      txSuccess = true;
+      // Sign
+      tx.lastValidBlockHeight = blockhash.lastValidBlockHeight;
+      tx.recentBlockhash = blockhash.blockhash;
+      tx.sign(USER_KEYPAIR);
+
+      // Send and wait confirmation
+      txStart = new Date();
+
+      signature = await connection.sendRawTransaction(tx.serialize(), {
+        skipPreflight: true,
+      });
+
+      const result = await connection.confirmTransaction(
+        {
+          signature,
+          blockhash: tx.recentBlockhash,
+          lastValidBlockHeight: tx.lastValidBlockHeight,
+        },
+        COMMITMENT_LEVEL,
+      );
+      if (result.value.err) {
+        throw new Error(
+          `Transaction ${signature} failed (${JSON.stringify(result.value)})`,
+        );
+      }
     } catch (e) {
       // Log and loop if we get a bad blockhash.
       if (e.message.includes("new blockhash")) {
@@ -144,30 +138,31 @@ while (uninterrupted) {
       }
 
       // Need to submit a fake signature to pass the import filters
-      signature = fakeSignature;
-      txSuccess = false;
+      signature = FAKE_SIGNATURE;
     }
+
     const txEnd = new Date();
-    const txElapsedMs = txEnd - txStart;
 
     // Sleep a little here to ensure the signature is on an RPC node.
-    await new Promise((r) => setTimeout(r, sleepMsRpc));
+    await new Promise((resolve) => setTimeout(resolve, SLEEP_MS_RPC));
 
-    // console.log(signature);
-    if (signature !== fakeSignature) {
+    if (signature !== FAKE_SIGNATURE) {
       // Capture the slotLanded
-      let txLanded = await connection.getTransaction(signature);
+      let txLanded = await connection.getTransaction(signature, {
+        commitment: COMMITMENT_LEVEL,
+        maxSupportedTransactionVersion: 255,
+      });
       slotLanded = txLanded.slot;
     }
 
     // prepare the payload to send to validators.app
     const payload = JSON.stringify({
-      time: txElapsedMs,
-      signature: signature,
+      time: txEnd - txStart,
+      signature,
       transaction_type: "transfer",
-      success: txSuccess,
+      success: signature !== FAKE_SIGNATURE,
       application: "web3",
-      commitment_level: commitmentLevel,
+      commitment_level: COMMITMENT_LEVEL,
       slot_sent: slotSent,
       slot_landed: slotLanded,
     });
@@ -190,8 +185,6 @@ while (uninterrupted) {
   } catch (e) {
     console.log(`${new Date().toISOString()} ERROR: ${e.name}`);
     console.log(`${new Date().toISOString()} ERROR: ${e.message}`);
-    if (++tryCount === maxTries) throw e;
+    if (++tryCount === MAX_TRIES) throw e;
   }
-  // close the subscription
-  connProcessed.removeSlotChangeListener(subscriptionId);
 }
