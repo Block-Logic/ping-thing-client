@@ -208,6 +208,16 @@ async function pingThing() {
         slotLanded = txLanded.slot;
       }
 
+      // Don't send if the slot latency is negative
+      if (slotLanded < slotSent) {
+        console.log(
+        signature,
+        `${new Date().toISOString()} ERROR: Slot ${slotLanded} < ${slotSent}. Signature ${signature}. Not sending to VA.`,
+        );
+        slotLanded = null;
+        continue;
+      }
+
       // prepare the payload to send to validators.app
       const payload = JSON.stringify({
         time: txEnd - txStart,
