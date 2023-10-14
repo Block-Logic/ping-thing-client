@@ -212,7 +212,7 @@ async function pingThing() {
       if (slotLanded < slotSent) {
         console.log(
         signature,
-        `${new Date().toISOString()} ERROR: Slot ${slotLanded} < ${slotSent}. Signature ${signature}. Not sending to VA.`,
+        `${new Date().toISOString()} ERROR: Slot ${slotLanded} < ${slotSent}. Not sending to VA.`,
         );
         slotLanded = null;
         continue;
