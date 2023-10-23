@@ -31,7 +31,9 @@ if (VERBOSE_LOG) console.log(`${new Date().toISOString()} Starting script`);
 
 // Set up web3 client
 // const walletAccount = new web3.PublicKey(USER_KEYPAIR.publicKey);
-const connection = new web3.Connection(RPC_ENDPOINT, COMMITMENT_LEVEL);
+const connection = new web3.Connection(RPC_ENDPOINT, {
+  commitment: COMMITMENT_LEVEL,
+});
 
 const sleep = async (dur) =>
   await new Promise((resolve) => setTimeout(resolve, dur));
@@ -73,16 +75,22 @@ async function watchSlotSent() {
       }
     });
 
-    // If update not received in last 3s, re-subscribe
-    while (true) {
+    // do not re-subscribe before first update, max 60s
+    const started_at = Date.now();
+    while (gSlotSent.value === null && Date.now() - started_at < 60000) {
       await sleep(1);
-      if (Date.now() - gSlotSent.updated_at > 3000) {
-        gSlotSent.value = null;
-        gSlotSent.updated_at = 0;
-        await connection.removeSlotUpdateListener(subscriptionId);
-        break;
+    }
+
+    // If update not received in last 3s, re-subscribe
+    if (gSlotSent.value !== null) {
+      while (Date.now() - gSlotSent.updated_at < 3000) {
+        await sleep(1);
       }
     }
+
+    await connection.removeSlotUpdateListener(subscriptionId);
+    gSlotSent.value = null;
+    gSlotSent.updated_at = 0;
   }
 }
 
@@ -211,8 +219,8 @@ async function pingThing() {
       // Don't send if the slot latency is negative
       if (slotLanded < slotSent) {
         console.log(
-        signature,
-        `${new Date().toISOString()} ERROR: Slot ${slotLanded} < ${slotSent}. Not sending to VA.`,
+          signature,
+          `${new Date().toISOString()} ERROR: Slot ${slotLanded} < ${slotSent}. Not sending to VA.`,
         );
         slotLanded = null;
         continue;
