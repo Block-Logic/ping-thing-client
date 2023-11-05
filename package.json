@@ -4,5 +4,11 @@
     "dotenv": "^16.3.1",
     "install": "^0.13.0",
     "xhr2": "^0.2.1"
+  },
+  "devDependencies": {
+    "prettier": "^3.0.3"
+  },
+  "scripts": {
+    "format": "npx prettier -w ping-thing-client.mjs"
   }
 }
