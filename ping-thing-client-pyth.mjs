@@ -1,5 +1,5 @@
 // Sample use:
-// node ping-thing-client-pythnet.mjs >> ping-thing.log 2>&1 &
+// node ping-thing-client-pyth.mjs >> ping-thing-pyth.log 2>&1 &
 
 import dotenv from "dotenv";
 import web3 from "@solana/web3.js";
