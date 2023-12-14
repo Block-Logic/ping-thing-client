@@ -213,6 +213,13 @@ async function pingThing() {
           commitment: COMMITMENT_LEVEL,
           maxSupportedTransactionVersion: 255,
         });
+        if (txLanded === null) {
+          console.log(
+            signature,
+            `${new Date().toISOString()} ERROR: tx is not landed in ${SLEEP_MS_RPC}ms. Not sending to VA.`,
+          );
+          continue;
+        }
         slotLanded = txLanded.slot;
       }
 
@@ -222,7 +229,6 @@ async function pingThing() {
           signature,
           `${new Date().toISOString()} ERROR: Slot ${slotLanded} < ${slotSent}. Not sending to VA.`,
         );
-        slotLanded = null;
         continue;
       }
 
