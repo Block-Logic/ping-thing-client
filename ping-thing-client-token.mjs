@@ -1,5 +1,8 @@
 // Sample use:
 // node ping-thing-client-token.mjs >> ping-thing-token.log 2>&1 &
+//
+// This script will send a small token transfer between two ATAs of the same type. You need to
+// create the ATAs in advance and put the ATA addresses in the .env file.
 
 import dotenv from "dotenv";
 import {Connection, Keypair, Transaction, ComputeBudgetProgram, PublicKey} from "@solana/web3.js";
@@ -30,15 +33,9 @@ const VA_API_KEY = process.env.VA_API_KEY;
 // process.env.VERBOSE_LOG returns a string. e.g. 'true'
 const COMMITMENT_LEVEL = process.env.COMMITMENT || "confirmed";
 const USE_PRIORITY_FEE = process.env.USE_PRIORITY_FEE == "true" ? true : false;
-const USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
-const SEND_ATA = new PublicKey('AiyHoLiN1Rk9G5VsF8i7u24trcyJYLgFaaEncVGVPLiQ');
-const REC_WALLET = new PublicKey('UPJTFaLZN1jLoQJtXC87cxgwsdzUnus4sTx3hXDE4cK');
-const REC_ATA = new PublicKey('6SwVSEWUuGyyxtzsymCJsU4LMpchM2SvgnoMMn4m9miJ');
-const AMOUNT = BigInt(1);
-
-// console.log(`Sender token account: ${SEND_ATA.toBase58()}`);
-// console.log(`Receiver token account: ${REC_ATA.toBase58()}`);
-// console.log(`Amount: ${AMOUNT}`); 
+const ATA_SEND = new PublicKey(process.env.ATA_SEND);
+const ATA_REC = new PublicKey(process.env.ATA_REC);
+const ATA_AMT = BigInt(process.env.ATA_AMT);
 
 // Set up web3 client
 const connection = new Connection(RPC_ENDPOINT, {
@@ -159,10 +156,10 @@ async function pingThing() {
         }
         tx.add(
           createTransferInstruction(
-              SEND_ATA,
-              REC_ATA,
+              ATA_SEND,
+              ATA_REC,
               USER_KEYPAIR.publicKey,
-              AMOUNT
+              ATA_AMT
           ),
         );
 
