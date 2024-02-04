@@ -49,7 +49,20 @@ const gBlockhash = { value: null, updated_at: 0 };
 async function watchBlockhash() {
   while (true) {
     try {
-      gBlockhash.value = await connection.getLatestBlockhash("finalized");
+      // Use a 5 second timeout to avoid hanging the script
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Operation timed out')), 5000)
+      );
+      // Get the latest blockhash from the RPC node and update the global
+      // blockhash object with the new value and timestamp. If the RPC node
+      // fails to respond within 5 seconds, the promise will reject and the
+      // script will log an error.
+      gBlockhash.value = await Promise.race([
+        connection.getLatestBlockhash("finalized"),
+        timeoutPromise
+      ]);
+
+      // gBlockhash.value = await connection.getLatestBlockhash("finalized");
       gBlockhash.updated_at = Date.now();
     } catch (error) {
       gBlockhash.value = null;
