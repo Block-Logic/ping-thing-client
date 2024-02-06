@@ -173,6 +173,8 @@ async function pingThing() {
         tx.recentBlockhash = blockhash.blockhash;
         tx.sign(USER_KEYPAIR);
 
+        if (VERBOSE_LOG) console.log(`${new Date().toISOString()} sending: ${bs58.encode(tx.signatures[0].signature)}`);
+
         // Send and wait confirmation
         txStart = Date.now();
         signature = await connection.sendRawTransaction(tx.serialize(), {
