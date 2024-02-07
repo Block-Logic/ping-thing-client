@@ -172,15 +172,13 @@ async function pingThing() {
         tx.lastValidBlockHeight = blockhash.lastValidBlockHeight;
         tx.recentBlockhash = blockhash.blockhash;
         tx.sign(USER_KEYPAIR);
+        const signatureRaw = tx.signatures[0].signature;
+        signature = bs58.encode(signatureRaw);
 
-        if (VERBOSE_LOG) console.log(`${new Date().toISOString()} sending: ${bs58.encode(tx.signatures[0].signature)}`);
+        if (VERBOSE_LOG) console.log(`${new Date().toISOString()} sending: ${signature}`);
 
-        // Send and wait confirmation
-        txStart = Date.now();
-        signature = await connection.sendRawTransaction(tx.serialize(), {
-          skipPreflight: true,
-        });
-        const result = await connection.confirmTransaction(
+        // Send and wait confirmation (subscribe on confirmation before sending)
+        const resultPromise = connection.confirmTransaction(
           {
             signature,
             blockhash: tx.recentBlockhash,
@@ -188,6 +186,14 @@ async function pingThing() {
           },
           COMMITMENT_LEVEL,
         );
+        txStart = Date.now();
+        const sendTxResult = await connection.sendRawTransaction(tx.serialize(), {
+          skipPreflight: true,
+        });
+        if (sendTxResult !== signature) {
+          throw new Error(`Receive invalid signature from sendRawTransaction: ${sendTxResult}, expected ${signature}`);
+        }
+        const result = await resultPromise;
         if (result.value.err) {
           throw new Error(
             `Transaction ${signature} failed (${JSON.stringify(result.value)})`,
