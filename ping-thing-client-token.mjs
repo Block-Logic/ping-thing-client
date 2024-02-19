@@ -9,7 +9,7 @@ import {Connection, Keypair, Transaction, ComputeBudgetProgram, PublicKey} from 
 import {createTransferInstruction} from "@solana/spl-token";
 
 import bs58 from "bs58";
-import XMLHttpRequest from "xhr2";
+import axios from "axios";
 
 // Catch interrupts & exit
 process.on("SIGINT", function () {
@@ -115,8 +115,6 @@ async function watchSlotSent() {
 }
 
 async function pingThing() {
-  // Set up our REST client
-  const restClient = new XMLHttpRequest();
 
   // Pre-define loop constants & variables
   const FAKE_SIGNATURE =
@@ -269,13 +267,12 @@ async function pingThing() {
       }
 
       // Send the ping data to validators.app
-      restClient.open(
-        "POST",
-        "https://www.validators.app/api/v1/ping-thing/mainnet",
-      );
-      restClient.setRequestHeader("Content-Type", "application/json");
-      restClient.setRequestHeader("Token", VA_API_KEY);
-      restClient.send(payload);
+      await axios.post("https://www.validators.app/api/v1/ping-thing/mainnet", payload, {
+        headers: {
+          "Content-Type": "application/json",
+          "Token": VA_API_KEY
+        }
+      });
 
       // Reset the try counter
       tryCount = 0;

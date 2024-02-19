@@ -289,7 +289,7 @@ async function pingThing() {
       });
 
       if (VERBOSE_LOG) {
-        console.log(`${new Date().toISOString()} updating validators.app with payload ${vAPayload}`);
+        console.log(`${new Date().toISOString()} ${vAPayload}`);
       }
 
       // Send the payload to validators.app
