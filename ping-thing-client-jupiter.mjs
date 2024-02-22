@@ -150,12 +150,6 @@ async function pingThing() {
           COMMITMENT_LEVEL,
         );
 
-        if (result.value.err) {
-          throw new Error(
-            `Transaction ${signature} failed (${JSON.stringify(result.value)})`,
-          );
-        }
-
       } catch (e) {
         // Log and loop if we get a bad blockhash.
         if (e.message.includes("Blockhash not found")) {
