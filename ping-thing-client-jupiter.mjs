@@ -4,8 +4,10 @@
 import dotenv from "dotenv";
 import web3, { VersionedTransaction } from "@solana/web3.js";
 import bs58 from "bs58";
-import XMLHttpRequest from "xhr2";
 import axios from "axios";
+import { watchBlockhash } from "./utils/blockhash.mjs";
+import { watchSlotSent } from "./utils/slot.mjs";
+import { sleep } from "./utils/misc.mjs";
 
 // Catch interrupts & exit
 process.on("SIGINT", function () {
@@ -30,7 +32,7 @@ const COMMITMENT_LEVEL = process.env.COMMITMENT || "confirmed";
 
 const SWAP_TOKEN_FROM = "So11111111111111111111111111111111111111112" // SOL
 const SWAP_TOKEN_TO = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" // USDC
-const SWAP_AMOUNT = 5000;
+const SWAP_AMOUNT = 1000;
 
 if (VERBOSE_LOG) console.log(`${new Date().toISOString()} Starting script`);
 
@@ -39,78 +41,10 @@ const connection = new web3.Connection(RPC_ENDPOINT, {
   commitment: COMMITMENT_LEVEL,
 });
 
-const sleep = async (dur) =>
-  await new Promise((resolve) => setTimeout(resolve, dur));
-
-
 const gBlockhash = { value: null, updated_at: 0 };
-async function watchBlockhash() {
-  while (true) {
-    try {
-      // Use a 5 second timeout to avoid hanging the script
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Operation timed out')), 5000)
-      );
-      // Get the latest blockhash from the RPC node and update the global
-      // blockhash object with the new value and timestamp. If the RPC node
-      // fails to respond within 5 seconds, the promise will reject and the
-      // script will log an error.
-      gBlockhash.value = await Promise.race([
-        connection.getLatestBlockhash("finalized"),
-        timeoutPromise
-      ]);
-
-      gBlockhash.updated_at = Date.now();
-    } catch (error) {
-      gBlockhash.value = null;
-      gBlockhash.updated_at = 0;
-
-      if (error.message.includes("new blockhash")) {
-        console.log(
-          `${new Date().toISOString()} ERROR: Unable to obtain a new blockhash`,
-        );
-      } else {
-        console.log(`${new Date().toISOString()} ERROR: ${error.name}`);
-        console.log(error.message);
-        console.log(error);
-        console.log(JSON.stringify(error));
-      }
-    }
-
-    await sleep(5000);
-  }
-}
 
 // Record new slot on `firstShredReceived`
 const gSlotSent = { value: null, updated_at: 0 };
-async function watchSlotSent() {
-  while (true) {
-    const subscriptionId = connection.onSlotUpdate((value) => {
-      if (value.type === "firstShredReceived") {
-        gSlotSent.value = value.slot;
-        gSlotSent.updated_at = Date.now();
-      }
-    });
-
-    // do not re-subscribe before first update, max 60s
-    const started_at = Date.now();
-    while (gSlotSent.value === null && Date.now() - started_at < 60000) {
-      await sleep(1);
-    }
-
-    // If update not received in last 3s, re-subscribe
-    if (gSlotSent.value !== null) {
-      while (Date.now() - gSlotSent.updated_at < 3000) {
-        await sleep(1);
-      }
-    }
-
-    await connection.removeSlotUpdateListener(subscriptionId);
-    gSlotSent.value = null;
-    gSlotSent.updated_at = 0;
-  }
-}
-
 
 async function pingThing() {
 
@@ -300,8 +234,12 @@ async function pingThing() {
         }
       });
       // throw error if response is not ok
-      if (!(vaResponse.status >= 200) && vaResponse.status < 300) {
+      if (!(vaResponse.status >= 200 && vaResponse.status <= 299)) {
         throw new Error(`Failed to update validators: ${vaResponse.status}`);
+      }
+
+      if (VERBOSE_LOG) {
+        console.log(`${new Date().toISOString()} VA Response ${vaResponse.status} ${JSON.stringify(vaResponse.data)}`);
       }
 
       // Reset the try counter
@@ -314,4 +252,4 @@ async function pingThing() {
   }
 }
 
-await Promise.all([watchBlockhash(), watchSlotSent(), pingThing()]);
+await Promise.all([watchBlockhash(gBlockhash, connection), watchSlotSent(gSlotSent,connection), pingThing()]);
