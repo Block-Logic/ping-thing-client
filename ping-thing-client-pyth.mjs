@@ -4,7 +4,10 @@
 import dotenv from "dotenv";
 import web3 from "@solana/web3.js";
 import bs58 from "bs58";
-import XMLHttpRequest from "xhr2";
+import axios from "axios";
+import { watchBlockhash } from "./utils/blockhash.mjs";
+import { watchSlotSent } from "./utils/slot.mjs";
+import { sleep } from "./utils/misc.mjs";
 
 // Catch interrupts & exit
 process.on("SIGINT", function () {
@@ -25,7 +28,7 @@ const VA_API_KEY = process.env.VA_API_KEY;
 // process.env.VERBOSE_LOG returns a string. e.g. 'true'
 const VERBOSE_LOG = process.env.VERBOSE_LOG === "true" ? true : false;
 const COMMITMENT_LEVEL = process.env.COMMITMENT || "confirmed";
-const USE_PRIORITY_FEE = process.env.USE_PRIORITY_FEE == "true" ? true : false;
+
 
 if (VERBOSE_LOG) console.log(`${new Date().toISOString()} Starting script`);
 
@@ -35,68 +38,12 @@ const connection = new web3.Connection(RPC_ENDPOINT, {
   commitment: COMMITMENT_LEVEL,
 });
 
-const sleep = async (dur) =>
-  await new Promise((resolve) => setTimeout(resolve, dur));
-
 const gBlockhash = { value: null, updated_at: 0 };
-async function watchBlockhash() {
-  while (true) {
-    try {
-      gBlockhash.value = await connection.getLatestBlockhash("finalized");
-      gBlockhash.updated_at = Date.now();
-    } catch (error) {
-      gBlockhash.value = null;
-      gBlockhash.updated_at = 0;
-
-      if (error.message.includes("new blockhash")) {
-        console.log(
-          `${new Date().toISOString()} ERROR: Unable to obtain a new blockhash`,
-        );
-      } else {
-        console.log(`${new Date().toISOString()} ERROR: ${error.name}`);
-        console.log(error.message);
-        console.log(error);
-        console.log(JSON.stringify(error));
-      }
-    }
-
-    await sleep(5000);
-  }
-}
 
 // Record new slot on `firstShredReceived`
 const gSlotSent = { value: null, updated_at: 0 };
-async function watchSlotSent() {
-  while (true) {
-    const subscriptionId = connection.onSlotUpdate((value) => {
-      if (value.type === "firstShredReceived") {
-        gSlotSent.value = value.slot;
-        gSlotSent.updated_at = Date.now();
-      }
-    });
-
-    // do not re-subscribe before first update, max 60s
-    const started_at = Date.now();
-    while (gSlotSent.value === null && Date.now() - started_at < 60000) {
-      await sleep(1);
-    }
-
-    // If update not received in last 3s, re-subscribe
-    if (gSlotSent.value !== null) {
-      while (Date.now() - gSlotSent.updated_at < 3000) {
-        await sleep(1);
-      }
-    }
-
-    await connection.removeSlotUpdateListener(subscriptionId);
-    gSlotSent.value = null;
-    gSlotSent.updated_at = 0;
-  }
-}
 
 async function pingThing() {
-  // Set up our REST client
-  const restClient = new XMLHttpRequest();
 
   // Pre-define loop constants & variables
   const FAKE_SIGNATURE =
@@ -227,7 +174,7 @@ async function pingThing() {
       }
 
       // prepare the payload to send to validators.app
-      const payload = JSON.stringify({
+      const vAPayload = JSON.stringify({
         time: txEnd - txStart,
         signature,
         transaction_type: "transfer",
@@ -238,17 +185,25 @@ async function pingThing() {
         slot_landed: slotLanded
       });
       if (VERBOSE_LOG) {
-        console.log(`${new Date().toISOString()} ${payload}`);
+        console.log(`${new Date().toISOString()} ${vAPayload}`);
       }
 
-      // Send the ping data to validators.app
-      restClient.open(
-        "POST",
-        "https://www.validators.app/api/v1/ping-thing/pythnet",
-      );
-      restClient.setRequestHeader("Content-Type", "application/json");
-      restClient.setRequestHeader("Token", VA_API_KEY);
-      restClient.send(payload);
+
+      // Send the payload to validators.app
+      const vaResponse = await axios.post("https://www.validators.app/api/v1/ping-thing/pythnet", vAPayload, {
+        headers: {
+          "Content-Type": "application/json",
+          "Token": VA_API_KEY
+        }
+      });
+      // throw error if response is not ok
+      if (!(vaResponse.status >= 200 && vaResponse.status <= 299)) {
+        throw new Error(`Failed to update validators: ${vaResponse.status}`);
+      }
+
+      if (VERBOSE_LOG) {
+        console.log(`${new Date().toISOString()} VA Response ${vaResponse.status} ${JSON.stringify(vaResponse.data)}`);
+      }
 
       // Reset the try counter
       tryCount = 0;
@@ -260,4 +215,4 @@ async function pingThing() {
   }
 }
 
-await Promise.all([watchBlockhash(), watchSlotSent(), pingThing()]);
+await Promise.all([watchBlockhash(gBlockhash, connection), watchSlotSent(gSlotSent, connection), pingThing()]);

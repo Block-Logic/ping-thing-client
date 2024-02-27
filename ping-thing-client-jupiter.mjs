@@ -1,8 +1,8 @@
 // Sample use:
-// node ping-thing-client.mjs >> ping-thing.log 2>&1 &
+// node ping-thing-client-jupiter.mjs >> ping-thing-jupiter.log 2>&1 &
 
 import dotenv from "dotenv";
-import web3 from "@solana/web3.js";
+import web3, { VersionedTransaction } from "@solana/web3.js";
 import bs58 from "bs58";
 import axios from "axios";
 import { watchBlockhash } from "./utils/blockhash.mjs";
@@ -21,6 +21,7 @@ const RPC_ENDPOINT = process.env.RPC_ENDPOINT;
 const USER_KEYPAIR = web3.Keypair.fromSecretKey(
   bs58.decode(process.env.WALLET_PRIVATE_KEYPAIR),
 );
+const JUPITER_ENDPOINT = `${RPC_ENDPOINT}/jupiter`;
 
 const SLEEP_MS_RPC = process.env.SLEEP_MS_RPC || 2000;
 const SLEEP_MS_LOOP = process.env.SLEEP_MS_LOOP || 0;
@@ -28,12 +29,14 @@ const VA_API_KEY = process.env.VA_API_KEY;
 // process.env.VERBOSE_LOG returns a string. e.g. 'true'
 const VERBOSE_LOG = process.env.VERBOSE_LOG === "true" ? true : false;
 const COMMITMENT_LEVEL = process.env.COMMITMENT || "confirmed";
-const USE_PRIORITY_FEE = process.env.USE_PRIORITY_FEE == "true" ? true : false;
+
+const SWAP_TOKEN_FROM = "So11111111111111111111111111111111111111112" // SOL
+const SWAP_TOKEN_TO = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" // USDC
+const SWAP_AMOUNT = 1000;
 
 if (VERBOSE_LOG) console.log(`${new Date().toISOString()} Starting script`);
 
 // Set up web3 client
-// const walletAccount = new web3.PublicKey(USER_KEYPAIR.publicKey);
 const connection = new web3.Connection(RPC_ENDPOINT, {
   commitment: COMMITMENT_LEVEL,
 });
@@ -55,6 +58,7 @@ async function pingThing() {
 
   // Loop until interrupted
   for (let i = 0; ; ++i) {
+
     // Sleep before the next loop
     if (i > 0) {
       await sleep(SLEEP_MS_LOOP);
@@ -65,6 +69,11 @@ async function pingThing() {
     let slotLanded;
     let signature;
     let txStart;
+
+    let tempResponse;
+
+    let quoteResponse;
+    let jupiterSwapTransaction;
 
     // Wait fresh data
     while (true) {
@@ -82,51 +91,65 @@ async function pingThing() {
 
     try {
       try {
-        // Setup our transaction
-        const tx = new web3.Transaction();
-        if (USE_PRIORITY_FEE) {
-          tx.add(
-            web3.ComputeBudgetProgram.setComputeUnitLimit({
-              units: process.env.CU_BUDGET || 5000,
-            }),
-            web3.ComputeBudgetProgram.setComputeUnitPrice({
-              microLamports: process.env.PRIORITY_FEE_MICRO_LAMPORTS || 3,
-            }),
-          );
+
+        if (VERBOSE_LOG) console.log(`${new Date().toISOString()} fetching jupiter swap quote`);
+
+        // Get quote for swap
+        tempResponse = await axios.get(`${JUPITER_ENDPOINT}/quote?inputMint=${SWAP_TOKEN_FROM}&outputMint=${SWAP_TOKEN_TO}&amount=${SWAP_AMOUNT}&slippageBps=50`);
+
+        // throw error if response is not ok
+        if (!(tempResponse.status >= 200) && tempResponse.status < 300) {
+          throw new Error(`Failed to fetch jupiter swap quote: ${tempResponse.status}`);
         }
-        tx.add(
-          web3.SystemProgram.transfer({
-            fromPubkey: USER_KEYPAIR.publicKey,
-            toPubkey: USER_KEYPAIR.publicKey,
-            lamports: 5000,
-          }),
-        );
+
+        quoteResponse = tempResponse.data;
+
+        if (VERBOSE_LOG) console.log(`${new Date().toISOString()} fetched jupiter swap quote`);
+
+        if (VERBOSE_LOG) console.log(`${new Date().toISOString()} fetching jupiter swap transaction`);
+
+        // Get swap transaction
+        tempResponse = await axios.post(`${JUPITER_ENDPOINT}/swap`, {
+          quoteResponse: quoteResponse,
+          userPublicKey: USER_KEYPAIR.publicKey.toBase58(),
+          wrapAndUnwrapSol: true,
+          dynamicComputeUnitLimit: true,
+        });
+        // throw error if response is not ok
+        if (!(tempResponse.status >= 200) && tempResponse.status < 300) {
+          throw new Error(`Failed to fetch jupiter swap transaction: ${tempResponse.status}`);
+        }
+
+        jupiterSwapTransaction = tempResponse.data;
+
+        if (VERBOSE_LOG) console.log(`${new Date().toISOString()} fetched jupiter swap transaction`);
+
+        const swapTransactionBuf = Buffer.from(jupiterSwapTransaction.swapTransaction, 'base64');
+        const tx = VersionedTransaction.deserialize(swapTransactionBuf);
 
         // Sign
-        tx.lastValidBlockHeight = blockhash.lastValidBlockHeight;
-        tx.recentBlockhash = blockhash.blockhash;
-        tx.sign(USER_KEYPAIR);
+        tx.sign([USER_KEYPAIR]);
 
-        if (VERBOSE_LOG) console.log(`${new Date().toISOString()} sending: ${bs58.encode(tx.signatures[0].signature)}`);
+        if (VERBOSE_LOG) console.log(`${new Date().toISOString()} sending swap transaction`);
+
+        txStart = Date.now();
 
         // Send and wait confirmation
-        txStart = Date.now();
         signature = await connection.sendRawTransaction(tx.serialize(), {
           skipPreflight: true,
         });
+
+        if (VERBOSE_LOG) console.log(`${new Date().toISOString()} confirming swap transaction ${signature}`);
+
         const result = await connection.confirmTransaction(
           {
             signature,
-            blockhash: tx.recentBlockhash,
-            lastValidBlockHeight: tx.lastValidBlockHeight,
+            blockhash: blockhash.blockhash,
+            lastValidBlockHeight: blockhash.lastValidBlockHeight,
           },
           COMMITMENT_LEVEL,
         );
-        if (result.value.err) {
-          throw new Error(
-            `Transaction ${signature} failed (${JSON.stringify(result.value)})`,
-          );
-        }
+
       } catch (e) {
         // Log and loop if we get a bad blockhash.
         if (e.message.includes("Blockhash not found")) {
@@ -185,13 +208,14 @@ async function pingThing() {
       const vAPayload = JSON.stringify({
         time: txEnd - txStart,
         signature,
-        transaction_type: "transfer",
+        transaction_type: "jupiter-swap",
         success: signature !== FAKE_SIGNATURE,
         application: "web3",
         commitment_level: COMMITMENT_LEVEL,
         slot_sent: slotSent,
         slot_landed: slotLanded,
       });
+
       if (VERBOSE_LOG) {
         console.log(`${new Date().toISOString()} ${vAPayload}`);
       }
