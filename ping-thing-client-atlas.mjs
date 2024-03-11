@@ -17,7 +17,7 @@ process.on("SIGINT", function () {
 
 // Read constants from .env
 dotenv.config();
-const ATLAS_RPC_ENDPOINT = process.env.ATLAS_RPC_ENDPOINT;
+const RPC_ENDPOINT_ATLAS = process.env.RPC_ENDPOINT_ATLAS;
 const RPC_ENDPOINT = process.env.RPC_ENDPOINT;
 const USER_KEYPAIR = web3.Keypair.fromSecretKey(
   bs58.decode(process.env.WALLET_PRIVATE_KEYPAIR),
@@ -39,7 +39,7 @@ const rpcConnection = new web3.Connection(RPC_ENDPOINT, {
   commitment: COMMITMENT_LEVEL,
 });
 
-const atlasRpcConnection = new web3.Connection(ATLAS_RPC_ENDPOINT, {
+const atlasRpcConnection = new web3.Connection(RPC_ENDPOINT_ATLAS, {
   commitment: COMMITMENT_LEVEL,
 });
 

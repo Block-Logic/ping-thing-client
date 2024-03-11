@@ -17,7 +17,7 @@ process.on("SIGINT", function () {
 
 // Read constants from .env
 dotenv.config();
-const LITE_RPC_ENDPOINT = process.env.LITE_RPC_ENDPOINT;
+const RPC_ENDPOINT_LITE = process.env.RPC_ENDPOINT_LITE;
 const RPC_ENDPOINT = process.env.RPC_ENDPOINT;
 const USER_KEYPAIR = web3.Keypair.fromSecretKey(
   bs58.decode(process.env.WALLET_PRIVATE_KEYPAIR),
@@ -39,7 +39,7 @@ const rpcConnection = new web3.Connection(RPC_ENDPOINT, {
   commitment: COMMITMENT_LEVEL,
 });
 
-const liteRpcConnection = new web3.Connection(LITE_RPC_ENDPOINT, {
+const liteRpcConnection = new web3.Connection(RPC_ENDPOINT_LITE, {
   commitment: COMMITMENT_LEVEL,
 });
 
@@ -227,4 +227,4 @@ async function pingThing() {
   }
 }
 
-await Promise.all([watchBlockhash(gBlockhash, rpcConnection), watchSlotSent(gSlotSent,rpcConnection), pingThing()]);
+await Promise.all([watchBlockhash(gBlockhash, rpcConnection), watchSlotSent(gSlotSent, rpcConnection), pingThing()]);
