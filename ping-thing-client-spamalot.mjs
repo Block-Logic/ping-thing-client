@@ -1,11 +1,18 @@
 // Sample use:
-// node ping-thing-client-token.mjs >> ping-thing-token.log 2>&1 &
+// node ping-thing-client-spamalot.mjs >> ping-thing-spamalot.log 2>&1 &
 //
+// This script sends a same transaction to multiple RPC nodes and sends the result to validators.app.
 // This script will send a small token transfer between two ATAs of the same type. You need to
 // create the ATAs in advance and put the ATA addresses in the .env file.
 
 import dotenv from "dotenv";
-import { Connection, Keypair, Transaction, ComputeBudgetProgram, PublicKey } from "@solana/web3.js";
+import {
+  Connection,
+  Keypair,
+  Transaction,
+  ComputeBudgetProgram,
+  PublicKey,
+} from "@solana/web3.js";
 import { createTransferInstruction } from "@solana/spl-token";
 
 import bs58 from "bs58";
@@ -23,8 +30,12 @@ process.on("SIGINT", function () {
 // Read constants from .env
 dotenv.config();
 const RPC_ENDPOINT = process.env.RPC_ENDPOINT;
+const RPC_ENDPOINT_CASCADE = process.env.RPC_ENDPOINT_CASCADE;
+const RPC_ENDPOINT_ATLAS = process.env.RPC_ENDPOINT_ATLAS;
+const RPC_ENDPOINT_LITE = process.env.RPC_ENDPOINT_LITE;
+
 const USER_KEYPAIR = Keypair.fromSecretKey(
-  bs58.decode(process.env.WALLET_PRIVATE_KEYPAIR),
+  bs58.decode(process.env.WALLET_PRIVATE_KEYPAIR)
 );
 
 const VERBOSE_LOG = process.env.VERBOSE_LOG === "true" ? true : false;
@@ -44,6 +55,15 @@ const ATA_AMT = BigInt(process.env.ATA_AMT);
 const connection = new Connection(RPC_ENDPOINT, {
   commitment: COMMITMENT_LEVEL,
 });
+const cascadeRpcConnection = new Connection(RPC_ENDPOINT_CASCADE, {
+  commitment: COMMITMENT_LEVEL,
+});
+const liteRpcConnection = new Connection(RPC_ENDPOINT_LITE, {
+  commitment: COMMITMENT_LEVEL,
+});
+const atlasRpcConnection = new Connection(RPC_ENDPOINT_ATLAS, {
+  commitment: COMMITMENT_LEVEL,
+});
 
 const gBlockhash = { value: null, updated_at: 0 };
 
@@ -51,7 +71,6 @@ const gBlockhash = { value: null, updated_at: 0 };
 const gSlotSent = { value: null, updated_at: 0 };
 
 async function pingThing() {
-
   // Pre-define loop constants & variables
   const FAKE_SIGNATURE =
     "9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999";
@@ -91,6 +110,7 @@ async function pingThing() {
       try {
         // Setup our transaction
         const tx = new Transaction();
+
         if (USE_PRIORITY_FEE) {
           tx.add(
             ComputeBudgetProgram.setComputeUnitLimit({
@@ -98,7 +118,7 @@ async function pingThing() {
             }),
             ComputeBudgetProgram.setComputeUnitPrice({
               microLamports: process.env.PRIORITY_FEE_MICRO_LAMPORTS || 3,
-            }),
+            })
           );
         }
         tx.add(
@@ -107,7 +127,7 @@ async function pingThing() {
             ATA_REC,
             USER_KEYPAIR.publicKey,
             ATA_AMT
-          ),
+          )
         );
 
         // Sign
@@ -115,22 +135,63 @@ async function pingThing() {
         tx.recentBlockhash = blockhash.blockhash;
         tx.sign(USER_KEYPAIR);
 
-        // Send and wait confirmation
-        txStart = Date.now();
-        signature = await connection.sendRawTransaction(tx.serialize(), {
-          skipPreflight: true,
-        });
+        // list of promises that'll be called in parallel
+        const txPromises = [];
+
+        txPromises.push(
+          cascadeRpcConnection
+            .sendRawTransaction(tx.serialize(), {
+              skipPreflight: true,
+            })
+            .catch((e) => {
+              throw e;
+            })
+        );
+
+        txPromises.push(
+          atlasRpcConnection
+            .sendRawTransaction(tx.serialize(), {
+              skipPreflight: true,
+            })
+            .catch((e) => {
+              throw e;
+            })
+        );
+
+        txPromises.push(
+          liteRpcConnection
+            .sendRawTransaction(tx.serialize(), {
+              skipPreflight: true,
+            })
+            .catch((e) => {
+              throw e;
+            })
+        );
+
+        if (VERBOSE_LOG)
+          console.log(
+            `${new Date().toISOString()} sending: ${bs58.encode(
+              tx.signatures[0].signature
+            )}`
+          );
+
+        // Send transactions
+        await Promise.all(txPromises);
+
+        signature = bs58.encode(tx.signatures[0].signature);
+
+        // Await confirmation
         const result = await connection.confirmTransaction(
           {
             signature,
             blockhash: tx.recentBlockhash,
             lastValidBlockHeight: tx.lastValidBlockHeight,
           },
-          COMMITMENT_LEVEL,
+          COMMITMENT_LEVEL
         );
         if (result.value.err) {
           throw new Error(
-            `Transaction ${signature} failed (${JSON.stringify(result.value)})`,
+            `Transaction ${signature} failed (${JSON.stringify(result.value)})`
           );
         }
       } catch (e) {
@@ -144,7 +205,7 @@ async function pingThing() {
         // to VA. Otherwise log and loop.
         if (e.name === "TransactionExpiredBlockheightExceededError") {
           console.log(
-            `${new Date().toISOString()} ERROR: Blockhash expired/block height exceeded. TX failure sent to VA.`,
+            `${new Date().toISOString()} ERROR: Blockhash expired/block height exceeded. TX failure sent to VA.`
           );
         } else {
           console.log(`${new Date().toISOString()} ERROR: ${e.name}`);
@@ -171,7 +232,7 @@ async function pingThing() {
         if (txLanded === null) {
           console.log(
             signature,
-            `${new Date().toISOString()} ERROR: tx is not found on RPC within ${SLEEP_MS_RPC}ms. Not sending to VA.`,
+            `${new Date().toISOString()} ERROR: tx is not found on RPC within ${SLEEP_MS_RPC}ms. Not sending to VA.`
           );
           continue;
         }
@@ -182,7 +243,7 @@ async function pingThing() {
       if (slotLanded < slotSent) {
         console.log(
           signature,
-          `${new Date().toISOString()} ERROR: Slot ${slotLanded} < ${slotSent}. Not sending to VA.`,
+          `${new Date().toISOString()} ERROR: Slot ${slotLanded} < ${slotSent}. Not sending to VA.`
         );
         continue;
       }
@@ -203,19 +264,27 @@ async function pingThing() {
       }
 
       // Send the payload to validators.app
-      const vaResponse = await axios.post("https://www.validators.app/api/v1/ping-thing/mainnet", vAPayload, {
-        headers: {
-          "Content-Type": "application/json",
-          "Token": VA_API_KEY
+      const vaResponse = await axios.post(
+        "https://www.validators.app/api/v1/ping-thing/mainnet",
+        vAPayload,
+        {
+          headers: {
+            "Content-Type": "application/json",
+            Token: VA_API_KEY,
+          },
         }
-      });
+      );
       // throw error if response is not ok
       if (!(vaResponse.status >= 200 && vaResponse.status <= 299)) {
         throw new Error(`Failed to update validators: ${vaResponse.status}`);
       }
 
       if (VERBOSE_LOG) {
-        console.log(`${new Date().toISOString()} VA Response ${vaResponse.status} ${JSON.stringify(vaResponse.data)}`);
+        console.log(
+          `${new Date().toISOString()} VA Response ${
+            vaResponse.status
+          } ${JSON.stringify(vaResponse.data)}`
+        );
       }
 
       // Reset the try counter
@@ -228,4 +297,8 @@ async function pingThing() {
   }
 }
 
-await Promise.all([watchBlockhash(gBlockhash, connection), watchSlotSent(gSlotSent, connection), pingThing()]);
+await Promise.all([
+  watchBlockhash(gBlockhash, connection),
+  watchSlotSent(gSlotSent, connection),
+  pingThing(),
+]);
