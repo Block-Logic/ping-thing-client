@@ -15,7 +15,7 @@ process.on("SIGINT", function () {
   process.exit();
 });
 
-// Look for a command line flag --skip-vaidators-app to skip sending to validators.app
+// Look for a command line flag --skip-validators-app to skip sending to validators.app
 // I use this for debugging on localhost
 const skipValidatorsApp = process.argv.includes("--skip-validators-app");
 

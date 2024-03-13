@@ -20,6 +20,10 @@ process.on("SIGINT", function () {
   process.exit();
 });
 
+// Look for a command line flag --skip-validators-app to skip sending to validators.app
+// I use this for debugging on localhost
+const skipValidatorsApp = process.argv.includes("--skip-validators-app");
+
 // Read constants from .env
 dotenv.config();
 const RPC_ENDPOINT = process.env.RPC_ENDPOINT;
@@ -76,9 +80,11 @@ async function pingThing() {
     // Wait fresh data
     while (true) {
       if (
-        Date.now() - gBlockhash.updated_at < 10000
+        Date.now() - gBlockhash.updated_at < 10000 &&
+        Date.now() - gSlotSent.updated_at < 50
       ) {
         blockhash = gBlockhash.value;
+        slotSent = gSlotSent.value;
         break;
       }
 
@@ -113,12 +119,15 @@ async function pingThing() {
         tx.recentBlockhash = blockhash.blockhash;
         tx.sign(USER_KEYPAIR);
 
+
         // Send and wait confirmation
-        slotSent = await connection.getSlot('processed');
         txStart = Date.now();
         signature = await connection.sendRawTransaction(tx.serialize(), {
           skipPreflight: true,
         });
+        
+        if (VERBOSE_LOG) console.log(`${new Date().toISOString()} sending: ${signature}`);
+
         const result = await connection.confirmTransaction(
           {
             signature,
@@ -201,20 +210,22 @@ async function pingThing() {
         console.log(`${new Date().toISOString()} ${vAPayload}`);
       }
 
-      // Send the payload to validators.app
-      const vaResponse = await axios.post("https://www.validators.app/api/v1/ping-thing/mainnet", vAPayload, {
-        headers: {
-          "Content-Type": "application/json",
-          "Token": VA_API_KEY
+      if (!skipValidatorsApp) {
+        // Send the payload to validators.app
+        const vaResponse = await axios.post("https://www.validators.app/api/v1/ping-thing/mainnet", vAPayload, {
+          headers: {
+            "Content-Type": "application/json",
+            "Token": VA_API_KEY
+          }
+        });
+        // throw error if response is not ok
+        if (!(vaResponse.status >= 200 && vaResponse.status <= 299)) {
+          throw new Error(`Failed to update validators: ${vaResponse.status}`);
         }
-      });
-      // throw error if response is not ok
-      if (!(vaResponse.status >= 200 && vaResponse.status <= 299)) {
-        throw new Error(`Failed to update validators: ${vaResponse.status}`);
-      }
 
-      if (VERBOSE_LOG) {
-        console.log(`${new Date().toISOString()} VA Response ${vaResponse.status} ${JSON.stringify(vaResponse.data)}`);
+        if (VERBOSE_LOG) {
+          console.log(`${new Date().toISOString()} VA Response ${vaResponse.status} ${JSON.stringify(vaResponse.data)}`);
+        }
       }
 
       // Reset the try counter
