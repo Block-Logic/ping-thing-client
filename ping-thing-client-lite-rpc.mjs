@@ -1,13 +1,8 @@
 // Sample use:
-// node ping-thing-client-token.mjs >> ping-thing-token.log 2>&1 &
-//
-// This script will send a small token transfer between two ATAs of the same type. You need to
-// create the ATAs in advance and put the ATA addresses in the .env file.
+// node ping-thing-client-lite-rpc.mjs >> ping-thing-lite-rpc.log 2>&1 &
 
 import dotenv from "dotenv";
-import { Connection, Keypair, Transaction, ComputeBudgetProgram, PublicKey } from "@solana/web3.js";
-import { createTransferInstruction } from "@solana/spl-token";
-
+import web3 from "@solana/web3.js";
 import bs58 from "bs58";
 import axios from "axios";
 import { watchBlockhash } from "./utils/blockhash.mjs";
@@ -22,26 +17,29 @@ process.on("SIGINT", function () {
 
 // Read constants from .env
 dotenv.config();
+const RPC_ENDPOINT_LITE = process.env.RPC_ENDPOINT_LITE;
 const RPC_ENDPOINT = process.env.RPC_ENDPOINT;
-const USER_KEYPAIR = Keypair.fromSecretKey(
+const USER_KEYPAIR = web3.Keypair.fromSecretKey(
   bs58.decode(process.env.WALLET_PRIVATE_KEYPAIR),
 );
 
-const VERBOSE_LOG = process.env.VERBOSE_LOG === "true" ? true : false;
-if (VERBOSE_LOG) console.log(`${new Date().toISOString()} Starting script`);
-
 const SLEEP_MS_RPC = process.env.SLEEP_MS_RPC || 2000;
 const SLEEP_MS_LOOP = process.env.SLEEP_MS_LOOP || 0;
-const VA_API_KEY = process.env.VA_API_KEY;
+const VA_API_KEY = process.env.LITERPC_VA_API_KEY;
 // process.env.VERBOSE_LOG returns a string. e.g. 'true'
+const VERBOSE_LOG = process.env.VERBOSE_LOG === "true" ? true : false;
 const COMMITMENT_LEVEL = process.env.COMMITMENT || "confirmed";
 const USE_PRIORITY_FEE = process.env.USE_PRIORITY_FEE == "true" ? true : false;
-const ATA_SEND = new PublicKey(process.env.ATA_SEND);
-const ATA_REC = new PublicKey(process.env.ATA_REC);
-const ATA_AMT = BigInt(process.env.ATA_AMT);
+
+if (VERBOSE_LOG) console.log(`${new Date().toISOString()} Starting script`);
 
 // Set up web3 client
-const connection = new Connection(RPC_ENDPOINT, {
+// const walletAccount = new web3.PublicKey(USER_KEYPAIR.publicKey);
+const rpcConnection = new web3.Connection(RPC_ENDPOINT, {
+  commitment: COMMITMENT_LEVEL,
+});
+
+const liteRpcConnection = new web3.Connection(RPC_ENDPOINT_LITE, {
   commitment: COMMITMENT_LEVEL,
 });
 
@@ -90,24 +88,23 @@ async function pingThing() {
     try {
       try {
         // Setup our transaction
-        const tx = new Transaction();
+        const tx = new web3.Transaction();
         if (USE_PRIORITY_FEE) {
           tx.add(
-            ComputeBudgetProgram.setComputeUnitLimit({
+            web3.ComputeBudgetProgram.setComputeUnitLimit({
               units: process.env.CU_BUDGET || 5000,
             }),
-            ComputeBudgetProgram.setComputeUnitPrice({
+            web3.ComputeBudgetProgram.setComputeUnitPrice({
               microLamports: process.env.PRIORITY_FEE_MICRO_LAMPORTS || 3,
             }),
           );
         }
         tx.add(
-          createTransferInstruction(
-            ATA_SEND,
-            ATA_REC,
-            USER_KEYPAIR.publicKey,
-            ATA_AMT
-          ),
+          web3.SystemProgram.transfer({
+            fromPubkey: USER_KEYPAIR.publicKey,
+            toPubkey: USER_KEYPAIR.publicKey,
+            lamports: 5000,
+          }),
         );
 
         // Sign
@@ -115,12 +112,14 @@ async function pingThing() {
         tx.recentBlockhash = blockhash.blockhash;
         tx.sign(USER_KEYPAIR);
 
+        if (VERBOSE_LOG) console.log(`${new Date().toISOString()} sending: ${bs58.encode(tx.signatures[0].signature)}`);
+
         // Send and wait confirmation
         txStart = Date.now();
-        signature = await connection.sendRawTransaction(tx.serialize(), {
+        signature = await liteRpcConnection.sendRawTransaction(tx.serialize(), {
           skipPreflight: true,
         });
-        const result = await connection.confirmTransaction(
+        const result = await rpcConnection.confirmTransaction(
           {
             signature,
             blockhash: tx.recentBlockhash,
@@ -164,7 +163,7 @@ async function pingThing() {
       await sleep(SLEEP_MS_RPC);
       if (signature !== FAKE_SIGNATURE) {
         // Capture the slotLanded
-        let txLanded = await connection.getTransaction(signature, {
+        let txLanded = await rpcConnection.getTransaction(signature, {
           commitment: COMMITMENT_LEVEL,
           maxSupportedTransactionVersion: 255,
         });
@@ -228,4 +227,4 @@ async function pingThing() {
   }
 }
 
-await Promise.all([watchBlockhash(gBlockhash, connection), watchSlotSent(gSlotSent, connection), pingThing()]);
+await Promise.all([watchBlockhash(gBlockhash, rpcConnection), watchSlotSent(gSlotSent, rpcConnection), pingThing()]);
