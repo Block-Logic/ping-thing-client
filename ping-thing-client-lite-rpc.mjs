@@ -25,7 +25,7 @@ const USER_KEYPAIR = web3.Keypair.fromSecretKey(
 
 const SLEEP_MS_RPC = process.env.SLEEP_MS_RPC || 2000;
 const SLEEP_MS_LOOP = process.env.SLEEP_MS_LOOP || 0;
-const VA_API_KEY = process.env.LITERPC_VA_API_KEY;
+const VA_API_KEY = process.env.VA_API_KEY;
 // process.env.VERBOSE_LOG returns a string. e.g. 'true'
 const VERBOSE_LOG = process.env.VERBOSE_LOG === "true" ? true : false;
 const COMMITMENT_LEVEL = process.env.COMMITMENT || "confirmed";
