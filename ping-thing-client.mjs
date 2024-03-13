@@ -69,11 +69,9 @@ async function pingThing() {
     // Wait fresh data
     while (true) {
       if (
-        Date.now() - gBlockhash.updated_at < 10000 &&
-        Date.now() - gSlotSent.updated_at < 50
+        Date.now() - gBlockhash.updated_at < 10000
       ) {
         blockhash = gBlockhash.value;
-        slotSent = gSlotSent.value;
         break;
       }
 
@@ -120,6 +118,8 @@ async function pingThing() {
           },
           COMMITMENT_LEVEL,
         );
+        
+        slotSent = await connection.getSlot('processed');
         txStart = Date.now();
         const sendTxResult = await connection.sendRawTransaction(tx.serialize(), {
           skipPreflight: true,

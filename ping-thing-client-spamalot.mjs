@@ -96,11 +96,8 @@ async function pingThing() {
     while (true) {
       if (
         Date.now() - gBlockhash.updated_at < 10000 
-        // &&
-        // Date.now() - gSlotSent.updated_at < 50
       ) {
         blockhash = gBlockhash.value;
-        // slotSent = gSlotSent.value;
         break;
       }
 
@@ -176,10 +173,9 @@ async function pingThing() {
             )}`
           );
 
-        txStart = Date.now();
-        // slotSent = gSlotSent.value;
         slotSent = await connection.getSlot('processed');
-        // console.log(JSON.stringify(slotSent));
+        // console.log(`slotSent: ${JSON.stringify(slotSent)}`);
+        txStart = Date.now();
 
         // Send transactions
         await Promise.all(txPromises);

@@ -78,11 +78,9 @@ async function pingThing() {
     // Wait fresh data
     while (true) {
       if (
-        Date.now() - gBlockhash.updated_at < 10000 &&
-        Date.now() - gSlotSent.updated_at < 50
+        Date.now() - gBlockhash.updated_at < 10000
       ) {
         blockhash = gBlockhash.value;
-        slotSent = gSlotSent.value;
         break;
       }
 
@@ -132,6 +130,7 @@ async function pingThing() {
 
         if (VERBOSE_LOG) console.log(`${new Date().toISOString()} sending swap transaction`);
 
+        slotSent = await connection.getSlot('processed');
         txStart = Date.now();
 
         // Send and wait confirmation
