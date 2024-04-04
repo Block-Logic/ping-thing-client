@@ -22,6 +22,7 @@ const skipValidatorsApp = process.argv.includes("--skip-validators-app");
 // Read constants from .env
 dotenv.config();
 const RPC_ENDPOINT = process.env.RPC_ENDPOINT;
+const WS_ENDPOINT = process.env.WS_ENDPOINT;
 const USER_KEYPAIR = web3.Keypair.fromSecretKey(
   bs58.decode(process.env.WALLET_PRIVATE_KEYPAIR),
 );
@@ -40,6 +41,10 @@ if (VERBOSE_LOG) console.log(`${new Date().toISOString()} Starting script`);
 // const walletAccount = new web3.PublicKey(USER_KEYPAIR.publicKey);
 const connection = new web3.Connection(RPC_ENDPOINT, {
   commitment: COMMITMENT_LEVEL,
+});
+
+const connectionWs = new web3.Connection(RPC_ENDPOINT, {
+  wsEndpoint: WS_ENDPOINT,
 });
 
 const gBlockhash = { value: null, updated_at: 0 };
@@ -116,7 +121,7 @@ async function pingThing() {
         if (VERBOSE_LOG) console.log(`${new Date().toISOString()} sending: ${signature}`);
 
         // Send and wait confirmation (subscribe on confirmation before sending)
-        const resultPromise = connection.confirmTransaction(
+        const resultPromise = connectionWs.confirmTransaction(
           {
             signature,
             blockhash: tx.recentBlockhash,
