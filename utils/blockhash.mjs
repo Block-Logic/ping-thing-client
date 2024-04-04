@@ -1,6 +1,6 @@
 import { sleep } from "./misc.mjs";
 
-const MAX_BLOCKHASH_FETCH_ATTEMPTS = 100;
+const MAX_BLOCKHASH_FETCH_ATTEMPTS = process.env.MAX_BLOCKHASH_FETCH_ATTEMPTS || 20;
 let attempts = 0;
 
 export const watchBlockhash = async (gBlockhash, connection) => {

@@ -1,6 +1,6 @@
 import { sleep } from "./misc.mjs";
 
-const MAX_SLOT_FETCH_ATTEMPTS = 3;
+const MAX_SLOT_FETCH_ATTEMPTS = process.env.MAX_SLOT_FETCH_ATTEMPTS || 20;
 let attempts = 0;
 
 export const watchSlotSent = async (gSlotSent, connection) => {
