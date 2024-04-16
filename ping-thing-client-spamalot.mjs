@@ -55,6 +55,8 @@ const ATA_SEND = new PublicKey(process.env.ATA_SEND);
 const ATA_REC = new PublicKey(process.env.ATA_REC);
 const ATA_AMT = BigInt(process.env.ATA_AMT);
 
+const TX_RETRY_INTERVAL = 2000;
+
 // Set up web3 client
 const connection = new Connection(RPC_ENDPOINT, {
   commitment: COMMITMENT_LEVEL,
@@ -95,6 +97,7 @@ async function pingThing() {
     let slotLanded;
     let signature;
     let txStart;
+    let txSendAttempts = 1;
 
     // Wait fresh data
     while (true) {
@@ -139,55 +142,14 @@ async function pingThing() {
         tx.recentBlockhash = blockhash.blockhash;
         tx.sign(USER_KEYPAIR);
 
-        // list of promises that'll be called in parallel
-        const txPromises = [];
-
-        txPromises.push(
-          cascadeRpcConnection
-            .sendRawTransaction(tx.serialize(), {
-              skipPreflight: true,
-            })
-            .catch((e) => {
-              throw e;
-            })
-        );
-
-        txPromises.push(
-          atlasRpcConnection
-            .sendRawTransaction(tx.serialize(), {
-              skipPreflight: true,
-            })
-            .catch((e) => {
-              throw e;
-            })
-        );
-
-        txPromises.push(
-          liteRpcConnection
-            .sendRawTransaction(tx.serialize(), {
-              skipPreflight: true,
-            })
-            .catch((e) => {
-              throw e;
-            })
-        );
+        const signatureRaw = tx.signatures[0].signature;
+        signature = bs58.encode(signatureRaw);
 
         if (VERBOSE_LOG)
-          console.log(
-            `${new Date().toISOString()} sending: ${bs58.encode(
-              tx.signatures[0].signature
-            )}`
-          );
+          console.log(`${new Date().toISOString()} sending: ${signature}`);
 
-        txStart = Date.now();
-
-        // Send transactions
-        await Promise.all(txPromises);
-
-        signature = bs58.encode(tx.signatures[0].signature);
-
-        // Await confirmation
-        const result = await connection.confirmTransaction(
+        // Send and wait confirmation (subscribe on confirmation before sending)
+        const resultPromise = connection.confirmTransaction(
           {
             signature,
             blockhash: tx.recentBlockhash,
@@ -195,9 +157,85 @@ async function pingThing() {
           },
           COMMITMENT_LEVEL
         );
-        if (result.value.err) {
+
+        txStart = Date.now();
+        await Promise.all([
+          cascadeRpcConnection
+            .sendRawTransaction(tx.serialize(), {
+              skipPreflight: true,
+              maxRetries: 0,
+            })
+            .catch((e) => {
+              throw e;
+            }),
+          atlasRpcConnection
+            .sendRawTransaction(tx.serialize(), {
+              skipPreflight: true,
+              maxRetries: 0,
+            })
+            .catch((e) => {
+              throw e;
+            }),
+          liteRpcConnection
+            .sendRawTransaction(tx.serialize(), {
+              skipPreflight: true,
+              maxRetries: 0,
+            })
+            .catch((e) => {
+              throw e;
+            }),
+        ]);
+
+        let confirmedTransaction = null;
+
+        while (!confirmedTransaction) {
+          confirmedTransaction = await Promise.race([
+            resultPromise,
+            new Promise((resolve) =>
+              setTimeout(() => {
+                resolve(null);
+              }, TX_RETRY_INTERVAL)
+            ),
+          ]);
+          if (confirmedTransaction) {
+            break;
+          }
+
+          console.log(
+            `${new Date().toISOString()} Tx not confirmed after ${TX_RETRY_INTERVAL * txSendAttempts++}ms, resending`
+          );
+
+          await Promise.all([
+            cascadeRpcConnection
+              .sendRawTransaction(tx.serialize(), {
+                skipPreflight: true,
+                maxRetries: 0,
+              })
+              .catch((e) => {
+                throw e;
+              }),
+            atlasRpcConnection
+              .sendRawTransaction(tx.serialize(), {
+                skipPreflight: true,
+                maxRetries: 0,
+              })
+              .catch((e) => {
+                throw e;
+              }),
+            liteRpcConnection
+              .sendRawTransaction(tx.serialize(), {
+                skipPreflight: true,
+                maxRetries: 0,
+              })
+              .catch((e) => {
+                throw e;
+              }),
+          ]);
+        }
+
+        if (confirmedTransaction.value.err) {
           throw new Error(
-            `Transaction ${signature} failed (${JSON.stringify(result.value)})`
+            `Transaction ${signature} failed (${JSON.stringify(confirmedTransaction.value)})`
           );
         }
       } catch (e) {
@@ -294,7 +332,7 @@ async function pingThing() {
           );
         }
       }
-      
+
       // Reset the try counter
       tryCount = 0;
     } catch (e) {
