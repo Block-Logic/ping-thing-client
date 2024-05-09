@@ -265,7 +265,7 @@ async function pingThing() {
           {
             headers: {
               "Content-Type": "application/json",
-              Token: VA_API_KEY,
+              "Token": VA_API_KEY,
             },
           }
         );
