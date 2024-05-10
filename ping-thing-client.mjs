@@ -140,7 +140,7 @@ async function pingThing() {
           tx.serialize(),
           {
             skipPreflight: true,
-            maxRetries: 0
+            maxRetries: 0,
           }
         );
 
@@ -153,6 +153,15 @@ async function pingThing() {
         let confirmedTransaction = null;
 
         while (!confirmedTransaction) {
+          const resultPromise = connectionWs.confirmTransaction(
+            {
+              signature,
+              blockhash: tx.recentBlockhash,
+              lastValidBlockHeight: tx.lastValidBlockHeight,
+            },
+            COMMITMENT_LEVEL
+          );
+
           confirmedTransaction = await Promise.race([
             resultPromise,
             new Promise((resolve) =>
@@ -171,7 +180,7 @@ async function pingThing() {
 
           await connection.sendRawTransaction(tx.serialize(), {
             skipPreflight: true,
-            maxRetries: 0
+            maxRetries: 0,
           });
         }
 
