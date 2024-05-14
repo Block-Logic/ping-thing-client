@@ -1,0 +1,5 @@
+.env
+*lock*
+node_modules/
+temp.mjs
+*.log

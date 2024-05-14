@@ -1,0 +1,28 @@
+{
+  "name": "ping-thing-client",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@solana-program/compute-budget": "^0.3.0",
+    "@solana-program/system": "^0.3.0",
+    "@solana/signers": "2.0.0-preview.3",
+    "@solana/transaction-confirmation": "2.0.0-preview.3",
+    "@solana/transactions": "2.0.0-preview.3",
+    "@solana/web3.js": "2.0.0-preview.3",
+    "axios": "^1.6.8",
+    "bs58": "^5.0.0",
+    "dotenv": "^16.4.5",
+    "js-yaml": "^4.1.0",
+    "undici": "^6.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.7"
+  }
+}
