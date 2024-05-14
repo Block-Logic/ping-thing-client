@@ -116,16 +116,17 @@ async function pingThing() {
 
     try {
       try {
-        // const latestBlockhash = await connection.getLatestBlockhash().send();
+        const latestBlockhash = await connection.getLatestBlockhash().send();
         const transaction = pipe(
           createTransactionMessage({ version: 0 }),
           (tx) => setTransactionMessageFeePayer(feePayer, tx),
           (tx) =>
             setTransactionMessageLifetimeUsingBlockhash(
-              {
-                blockhash: gBlockhash.value,
-                lastValidBlockHeight: gBlockhash.lastValidBlockHeight,
-              },
+              latestBlockhash.value,
+              // {
+              //   blockhash: gBlockhash.value,
+              //   lastValidBlockHeight: gBlockhash.lastValidBlockHeight,
+              // },
               tx
             ),
           (tx) =>
