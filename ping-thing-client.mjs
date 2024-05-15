@@ -171,6 +171,7 @@ async function pingThing() {
             await mSendTransaction(transactionSignedWithFeePayer, {
               commitment: "confirmed",
               maxRetries: 0n,
+              skipPreflight: true,
             });
 
             await Promise.race([
