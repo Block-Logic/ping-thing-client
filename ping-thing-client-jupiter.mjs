@@ -7,6 +7,14 @@ import bs58 from "bs58";
 import XMLHttpRequest from "xhr2";
 import axios from "axios";
 
+import { setGlobalDispatcher, Agent } from "undici";
+
+setGlobalDispatcher(
+  new Agent({
+    connections: 50,
+  })
+);
+
 // Catch interrupts & exit
 process.on("SIGINT", function () {
   console.log(`${new Date().toISOString()} Caught interrupt signal`, "\n");

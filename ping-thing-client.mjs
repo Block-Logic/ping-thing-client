@@ -6,6 +6,14 @@ import web3 from "@solana/web3.js";
 import bs58 from "bs58";
 import axios from "axios";
 
+import { setGlobalDispatcher, Agent } from "undici";
+
+setGlobalDispatcher(
+  new Agent({
+    connections: 50,
+  })
+);
+
 // Catch interrupts & exit
 process.on("SIGINT", function () {
   console.log(`${new Date().toISOString()} Caught interrupt signal`, "\n");
@@ -16,7 +24,7 @@ process.on("SIGINT", function () {
 dotenv.config();
 const RPC_ENDPOINT = process.env.RPC_ENDPOINT;
 const USER_KEYPAIR = web3.Keypair.fromSecretKey(
-  bs58.decode(process.env.WALLET_PRIVATE_KEYPAIR),
+  bs58.decode(process.env.WALLET_PRIVATE_KEYPAIR)
 );
 
 const SLEEP_MS_RPC = process.env.SLEEP_MS_RPC || 2000;
@@ -43,8 +51,8 @@ async function watchBlockhash() {
   while (true) {
     try {
       // Use a 5 second timeout to avoid hanging the script
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Operation timed out')), 5000)
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Operation timed out")), 5000)
       );
       // Get the latest blockhash from the RPC node and update the global
       // blockhash object with the new value and timestamp. If the RPC node
@@ -52,7 +60,7 @@ async function watchBlockhash() {
       // script will log an error.
       gBlockhash.value = await Promise.race([
         connection.getLatestBlockhash("finalized"),
-        timeoutPromise
+        timeoutPromise,
       ]);
 
       // gBlockhash.value = await connection.getLatestBlockhash("finalized");
@@ -63,7 +71,7 @@ async function watchBlockhash() {
 
       if (error.message.includes("new blockhash")) {
         console.log(
-          `${new Date().toISOString()} ERROR: Unable to obtain a new blockhash`,
+          `${new Date().toISOString()} ERROR: Unable to obtain a new blockhash`
         );
       } else {
         console.log(`${new Date().toISOString()} ERROR: ${error.name}`);
@@ -108,7 +116,6 @@ async function watchSlotSent() {
 }
 
 async function pingThing() {
-
   // Pre-define loop constants & variables
   const FAKE_SIGNATURE =
     "9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999";
@@ -155,7 +162,7 @@ async function pingThing() {
             }),
             web3.ComputeBudgetProgram.setComputeUnitPrice({
               microLamports: process.env.PRIORITY_FEE_MICRO_LAMPORTS || 3,
-            }),
+            })
           );
         }
         tx.add(
@@ -163,7 +170,7 @@ async function pingThing() {
             fromPubkey: USER_KEYPAIR.publicKey,
             toPubkey: USER_KEYPAIR.publicKey,
             lamports: 5000,
-          }),
+          })
         );
 
         // Sign
@@ -171,7 +178,10 @@ async function pingThing() {
         tx.recentBlockhash = blockhash.blockhash;
         tx.sign(USER_KEYPAIR);
 
-        if (VERBOSE_LOG) console.log(`${new Date().toISOString()} sending: ${bs58.encode(tx.signatures[0].signature)}`);
+        if (VERBOSE_LOG)
+          console.log(
+            `${new Date().toISOString()} sending: ${bs58.encode(tx.signatures[0].signature)}`
+          );
 
         // Send and wait confirmation
         txStart = Date.now();
@@ -184,11 +194,11 @@ async function pingThing() {
             blockhash: tx.recentBlockhash,
             lastValidBlockHeight: tx.lastValidBlockHeight,
           },
-          COMMITMENT_LEVEL,
+          COMMITMENT_LEVEL
         );
         if (result.value.err) {
           throw new Error(
-            `Transaction ${signature} failed (${JSON.stringify(result.value)})`,
+            `Transaction ${signature} failed (${JSON.stringify(result.value)})`
           );
         }
       } catch (e) {
@@ -202,7 +212,7 @@ async function pingThing() {
         // to VA. Otherwise log and loop.
         if (e.name === "TransactionExpiredBlockheightExceededError") {
           console.log(
-            `${new Date().toISOString()} ERROR: Blockhash expired/block height exceeded. TX failure sent to VA.`,
+            `${new Date().toISOString()} ERROR: Blockhash expired/block height exceeded. TX failure sent to VA.`
           );
         } else {
           console.log(`${new Date().toISOString()} ERROR: ${e.name}`);
@@ -229,7 +239,7 @@ async function pingThing() {
         if (txLanded === null) {
           console.log(
             signature,
-            `${new Date().toISOString()} ERROR: tx is not found on RPC within ${SLEEP_MS_RPC}ms. Not sending to VA.`,
+            `${new Date().toISOString()} ERROR: tx is not found on RPC within ${SLEEP_MS_RPC}ms. Not sending to VA.`
           );
           continue;
         }
@@ -240,7 +250,7 @@ async function pingThing() {
       if (slotLanded < slotSent) {
         console.log(
           signature,
-          `${new Date().toISOString()} ERROR: Slot ${slotLanded} < ${slotSent}. Not sending to VA.`,
+          `${new Date().toISOString()} ERROR: Slot ${slotLanded} < ${slotSent}. Not sending to VA.`
         );
         continue;
       }
@@ -261,12 +271,16 @@ async function pingThing() {
       }
 
       // Send the ping data to validators.app
-      await axios.post("https://www.validators.app/api/v1/ping-thing/mainnet", payload, {
-        headers: {
-          "Content-Type": "application/json",
-          "Token": VA_API_KEY
+      await axios.post(
+        "https://www.validators.app/api/v1/ping-thing/mainnet",
+        payload,
+        {
+          headers: {
+            "Content-Type": "application/json",
+            Token: VA_API_KEY,
+          },
         }
-      });
+      );
 
       // Reset the try counter
       tryCount = 0;
