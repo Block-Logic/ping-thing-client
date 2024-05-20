@@ -9,6 +9,14 @@ import { watchBlockhash } from "./utils/blockhash.mjs";
 import { watchSlotSent } from "./utils/slot.mjs";
 import { sleep } from "./utils/misc.mjs";
 
+import { setGlobalDispatcher, Agent } from "undici";
+
+setGlobalDispatcher(
+  new Agent({
+    connections: 50,
+  })
+);
+
 // Catch interrupts & exit
 process.on("SIGINT", function () {
   console.log(`${new Date().toISOString()} Caught interrupt signal`, "\n");
@@ -24,7 +32,7 @@ dotenv.config();
 const RPC_ENDPOINT_ATLAS = process.env.RPC_ENDPOINT_ATLAS;
 const RPC_ENDPOINT = process.env.RPC_ENDPOINT;
 const USER_KEYPAIR = web3.Keypair.fromSecretKey(
-  bs58.decode(process.env.WALLET_PRIVATE_KEYPAIR),
+  bs58.decode(process.env.WALLET_PRIVATE_KEYPAIR)
 );
 
 const SLEEP_MS_RPC = process.env.SLEEP_MS_RPC || 2000;
@@ -53,7 +61,6 @@ const gBlockhash = { value: null, updated_at: 0 };
 const gSlotSent = { value: null, updated_at: 0 };
 
 async function pingThing() {
-
   // Pre-define loop constants & variables
   const FAKE_SIGNATURE =
     "9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999";
@@ -100,7 +107,7 @@ async function pingThing() {
             }),
             web3.ComputeBudgetProgram.setComputeUnitPrice({
               microLamports: process.env.PRIORITY_FEE_MICRO_LAMPORTS || 3,
-            }),
+            })
           );
         }
         tx.add(
@@ -108,31 +115,37 @@ async function pingThing() {
             fromPubkey: USER_KEYPAIR.publicKey,
             toPubkey: USER_KEYPAIR.publicKey,
             lamports: 5000,
-          }),
+          })
         );
 
         tx.lastValidBlockHeight = blockhash.lastValidBlockHeight;
         tx.recentBlockhash = blockhash.blockhash;
         tx.sign(USER_KEYPAIR);
 
-        if (VERBOSE_LOG) console.log(`${new Date().toISOString()} sending: ${bs58.encode(tx.signatures[0].signature)}`);
+        if (VERBOSE_LOG)
+          console.log(
+            `${new Date().toISOString()} sending: ${bs58.encode(tx.signatures[0].signature)}`
+          );
 
         // Send and wait confirmation
         txStart = Date.now();
-        signature = await atlasRpcConnection.sendRawTransaction(tx.serialize(), {
-          skipPreflight: true
-        });
+        signature = await atlasRpcConnection.sendRawTransaction(
+          tx.serialize(),
+          {
+            skipPreflight: true,
+          }
+        );
         const result = await rpcConnection.confirmTransaction(
           {
             signature,
             blockhash: tx.recentBlockhash,
             lastValidBlockHeight: tx.lastValidBlockHeight,
           },
-          COMMITMENT_LEVEL,
+          COMMITMENT_LEVEL
         );
         if (result.value.err) {
           throw new Error(
-            `Transaction ${signature} failed (${JSON.stringify(result.value)})`,
+            `Transaction ${signature} failed (${JSON.stringify(result.value)})`
           );
         }
       } catch (e) {
@@ -146,7 +159,7 @@ async function pingThing() {
         // to VA. Otherwise log and loop.
         if (e.name === "TransactionExpiredBlockheightExceededError") {
           console.log(
-            `${new Date().toISOString()} ERROR: Blockhash expired/block height exceeded. TX failure sent to VA.`,
+            `${new Date().toISOString()} ERROR: Blockhash expired/block height exceeded. TX failure sent to VA.`
           );
         } else {
           console.log(`${new Date().toISOString()} ERROR: ${e.name}`);
@@ -173,7 +186,7 @@ async function pingThing() {
         if (txLanded === null) {
           console.log(
             signature,
-            `${new Date().toISOString()} ERROR: tx is not found on RPC within ${SLEEP_MS_RPC}ms. Not sending to VA.`,
+            `${new Date().toISOString()} ERROR: tx is not found on RPC within ${SLEEP_MS_RPC}ms. Not sending to VA.`
           );
           continue;
         }
@@ -184,7 +197,7 @@ async function pingThing() {
       if (slotLanded < slotSent) {
         console.log(
           signature,
-          `${new Date().toISOString()} ERROR: Slot ${slotLanded} < ${slotSent}. Not sending to VA.`,
+          `${new Date().toISOString()} ERROR: Slot ${slotLanded} < ${slotSent}. Not sending to VA.`
         );
         continue;
       }
@@ -206,19 +219,25 @@ async function pingThing() {
 
       if (!skipValidatorsApp) {
         // Send the payload to validators.app
-        const vaResponse = await axios.post("https://www.validators.app/api/v1/ping-thing/mainnet", vAPayload, {
-          headers: {
-            "Content-Type": "application/json",
-            "Token": VA_API_KEY
+        const vaResponse = await axios.post(
+          "https://www.validators.app/api/v1/ping-thing/mainnet",
+          vAPayload,
+          {
+            headers: {
+              "Content-Type": "application/json",
+              Token: VA_API_KEY,
+            },
           }
-        });
+        );
         // throw error if response is not ok
         if (!(vaResponse.status >= 200 && vaResponse.status <= 299)) {
           throw new Error(`Failed to update validators: ${vaResponse.status}`);
         }
 
         if (VERBOSE_LOG) {
-          console.log(`${new Date().toISOString()} VA Response ${vaResponse.status} ${JSON.stringify(vaResponse.data)}`);
+          console.log(
+            `${new Date().toISOString()} VA Response ${vaResponse.status} ${JSON.stringify(vaResponse.data)}`
+          );
         }
       }
 
@@ -232,4 +251,8 @@ async function pingThing() {
   }
 }
 
-await Promise.all([watchBlockhash(gBlockhash, rpcConnection), watchSlotSent(gSlotSent, rpcConnection), pingThing()]);
+await Promise.all([
+  watchBlockhash(gBlockhash, rpcConnection),
+  watchSlotSent(gSlotSent, rpcConnection),
+  pingThing(),
+]);

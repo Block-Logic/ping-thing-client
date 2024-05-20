@@ -14,6 +14,14 @@ import { watchBlockhash } from "./utils/blockhash.mjs";
 import { watchSlotSent } from "./utils/slot.mjs";
 import { sleep } from "./utils/misc.mjs";
 
+import { setGlobalDispatcher, Agent } from "undici";
+
+setGlobalDispatcher(
+  new Agent({
+    connections: 50,
+  })
+);
+
 // Catch interrupts & exit
 process.on("SIGINT", function () {
   console.log(`${new Date().toISOString()} Caught interrupt signal`, "\n");
