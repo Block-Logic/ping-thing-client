@@ -3,8 +3,10 @@
     "@solana/spl-token": "^0.3.9",
     "@solana/web3.js": "^1.78.5",
     "axios": "^1.6.7",
+    "bs58": "^5.0.0",
     "dotenv": "^16.3.1",
     "install": "^0.13.0",
+    "undici": "^6.17.0",
     "xhr2": "^0.2.1"
   },
   "devDependencies": {
