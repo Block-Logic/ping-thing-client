@@ -1,5 +1,4 @@
 import {
-  createSolanaRpcFromTransport,
   createDefaultRpcTransport,
   createTransactionMessage,
   pipe,
@@ -11,10 +10,11 @@ import {
   signTransaction,
   appendTransactionMessageInstructions,
   sendTransactionWithoutConfirmingFactory,
-  createSolanaRpcSubscriptions,
   createSolanaRpcSubscriptions_UNSTABLE,
   getSignatureFromTransaction,
   compileTransaction,
+  createSolanaRpc,
+  SOLANA_ERROR__TRANSACTION_ERROR__BLOCKHASH_NOT_FOUND
   // Address,
 } from "@solana/web3.js";
 import dotenv from "dotenv";
@@ -56,11 +56,7 @@ const SKIP_VALIDATORS_APP = process.env.SKIP_VALIDATORS_APP || false;
 
 if (VERBOSE_LOG) console.log(`Starting script`);
 
-const transport = createDefaultRpcTransport({
-  url: RPC_ENDPOINT,
-});
-
-const connection = createSolanaRpcFromTransport(transport);
+const connection = createSolanaRpc(RPC_ENDPOINT)
 
 const rpcSubscriptions = createSolanaRpcSubscriptions_UNSTABLE(
   WS_ENDPOINT
@@ -113,20 +109,17 @@ async function pingThing() {
 
       await sleep(1);
     }
-
     try {
       try {
-        const latestBlockhash = await connection.getLatestBlockhash().send();
         const transaction = pipe(
           createTransactionMessage({ version: 0 }),
           (tx) => setTransactionMessageFeePayer(feePayer, tx),
           (tx) =>
             setTransactionMessageLifetimeUsingBlockhash(
-              latestBlockhash.value,
-              // {
-              //   blockhash: gBlockhash.value,
-              //   lastValidBlockHeight: gBlockhash.lastValidBlockHeight,
-              // },
+              {
+                blockhash: gBlockhash.value,
+                lastValidBlockHeight: gBlockhash.lastValidBlockHeight,
+              },
               tx
             ),
           (tx) =>
@@ -189,7 +182,6 @@ async function pingThing() {
 
             break;
           } catch (e) {
-            console.log(e);
             console.log(
               `Tx not confirmed after ${
                 TX_RETRY_INTERVAL * txSendAttempts++
@@ -199,7 +191,8 @@ async function pingThing() {
         }
       } catch (e) {
         // Log and loop if we get a bad blockhash.
-        if (e.message.includes("Blockhash not found")) {
+        if (isSolanaError(e, SOLANA_ERROR__TRANSACTION_ERROR__BLOCKHASH_NOT_FOUND)) {
+        // if (e.message.includes("Blockhash not found")) {
           console.log(`ERROR: Blockhash not found`);
           continue;
         }
