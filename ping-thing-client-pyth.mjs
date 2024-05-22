@@ -30,8 +30,9 @@ const skipValidatorsApp = process.argv.includes("--skip-validators-app");
 // Read constants from .env
 dotenv.config();
 const RPC_ENDPOINT = process.env.RPC_ENDPOINT_PYTH;
+const WS_ENDPOINT = process.env.WS_ENDPOINT;
 const USER_KEYPAIR = web3.Keypair.fromSecretKey(
-  bs58.decode(process.env.WALLET_PRIVATE_KEYPAIR),
+  bs58.decode(process.env.WALLET_PRIVATE_KEYPAIR)
 );
 
 const SLEEP_MS_RPC = process.env.SLEEP_MS_RPC || 2000;
@@ -41,7 +42,6 @@ const VA_API_KEY = process.env.VA_API_KEY;
 const VERBOSE_LOG = process.env.VERBOSE_LOG === "true" ? true : false;
 const COMMITMENT_LEVEL = process.env.COMMITMENT || "confirmed";
 
-
 if (VERBOSE_LOG) console.log(`${new Date().toISOString()} Starting script`);
 
 // Set up web3 client
@@ -50,13 +50,16 @@ const connection = new web3.Connection(RPC_ENDPOINT, {
   commitment: COMMITMENT_LEVEL,
 });
 
+const connectionWs = new web3.Connection(RPC_ENDPOINT, {
+  wsEndpoint: WS_ENDPOINT,
+});
+
 const gBlockhash = { value: null, updated_at: 0 };
 
 // Record new slot on `firstShredReceived`
 const gSlotSent = { value: null, updated_at: 0 };
 
 async function pingThing() {
-
   // Pre-define loop constants & variables
   const FAKE_SIGNATURE =
     "9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999";
@@ -111,7 +114,7 @@ async function pingThing() {
             fromPubkey: USER_KEYPAIR.publicKey,
             toPubkey: USER_KEYPAIR.publicKey,
             lamports: 5000,
-          }),
+          })
         );
 
         // Sign
@@ -119,22 +122,53 @@ async function pingThing() {
         tx.recentBlockhash = blockhash.blockhash;
         tx.sign(USER_KEYPAIR);
 
-        // Send and wait confirmation
-        txStart = Date.now();
-        signature = await connection.sendRawTransaction(tx.serialize(), {
-          skipPreflight: true,
-        });
-        const result = await connection.confirmTransaction(
+        const signatureRaw = tx.signatures[0].signature;
+        signature = bs58.encode(signatureRaw);
+
+        if (VERBOSE_LOG)
+          console.log(`${new Date().toISOString()} sending: ${signature}`);
+
+        // Send and wait confirmation (subscribe on confirmation before sending)
+        const resultPromise = connectionWs.confirmTransaction(
           {
             signature,
             blockhash: tx.recentBlockhash,
             lastValidBlockHeight: tx.lastValidBlockHeight,
           },
-          COMMITMENT_LEVEL,
+          COMMITMENT_LEVEL
         );
+
+        txStart = Date.now();
+        const sendTxResult = await connection.sendRawTransaction(
+          tx.serialize(),
+          {
+            skipPreflight: true,
+          }
+        );
+        if (sendTxResult !== signature) {
+          throw new Error(
+            `Receive invalid signature from sendRawTransaction: ${sendTxResult}, expected ${signature}`
+          );
+        }
+        const result = await resultPromise;
+
+        // // Send and wait confirmation
+        // txStart = Date.now();
+        // signature = await connection.sendRawTransaction(tx.serialize(), {
+        //   skipPreflight: true,
+        // });
+        // const result = await connection.confirmTransaction(
+        //   {
+        //     signature,
+        //     blockhash: tx.recentBlockhash,
+        //     lastValidBlockHeight: tx.lastValidBlockHeight,
+        //   },
+        //   COMMITMENT_LEVEL,
+        // );
+
         if (result.value.err) {
           throw new Error(
-            `Transaction ${signature} failed (${JSON.stringify(result.value)})`,
+            `Transaction ${signature} failed (${JSON.stringify(result.value)})`
           );
         }
       } catch (e) {
@@ -148,7 +182,7 @@ async function pingThing() {
         // to VA. Otherwise log and loop.
         if (e.name === "TransactionExpiredBlockheightExceededError") {
           console.log(
-            `${new Date().toISOString()} ERROR: Blockhash expired/block height exceeded. TX failure sent to VA.`,
+            `${new Date().toISOString()} ERROR: Blockhash expired/block height exceeded. TX failure sent to VA.`
           );
         } else {
           console.log(`${new Date().toISOString()} ERROR: ${e.name}`);
@@ -179,7 +213,7 @@ async function pingThing() {
       if (slotLanded < slotSent) {
         console.log(
           signature,
-          `${new Date().toISOString()} ERROR: Slot ${slotLanded} < ${slotSent}. Not sending to VA.`,
+          `${new Date().toISOString()} ERROR: Slot ${slotLanded} < ${slotSent}. Not sending to VA.`
         );
         slotLanded = null;
         continue;
@@ -194,31 +228,36 @@ async function pingThing() {
         application: "web3",
         commitment_level: COMMITMENT_LEVEL,
         slot_sent: slotSent,
-        slot_landed: slotLanded
+        slot_landed: slotLanded,
       });
       if (VERBOSE_LOG) {
         console.log(`${new Date().toISOString()} ${vAPayload}`);
       }
 
-
       if (!skipValidatorsApp) {
         // Send the payload to validators.app
-        const vaResponse = await axios.post("https://www.validators.app/api/v1/ping-thing/pythnet", vAPayload, {
-          headers: {
-            "Content-Type": "application/json",
-            "Token": VA_API_KEY
+        const vaResponse = await axios.post(
+          "https://www.validators.app/api/v1/ping-thing/pythnet",
+          vAPayload,
+          {
+            headers: {
+              "Content-Type": "application/json",
+              Token: VA_API_KEY,
+            },
           }
-        });
+        );
         // throw error if response is not ok
         if (!(vaResponse.status >= 200 && vaResponse.status <= 299)) {
           throw new Error(`Failed to update validators: ${vaResponse.status}`);
         }
 
         if (VERBOSE_LOG) {
-          console.log(`${new Date().toISOString()} VA Response ${vaResponse.status} ${JSON.stringify(vaResponse.data)}`);
+          console.log(
+            `${new Date().toISOString()} VA Response ${vaResponse.status} ${JSON.stringify(vaResponse.data)}`
+          );
         }
       }
-      
+
       // Reset the try counter
       tryCount = 0;
     } catch (e) {
@@ -229,4 +268,8 @@ async function pingThing() {
   }
 }
 
-await Promise.all([watchBlockhash(gBlockhash, connection), watchSlotSent(gSlotSent, connection), pingThing()]);
+await Promise.all([
+  watchBlockhash(gBlockhash, connection),
+  watchSlotSent(gSlotSent, connection),
+  pingThing(),
+]);

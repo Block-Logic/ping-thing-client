@@ -43,6 +43,8 @@ const VERBOSE_LOG = process.env.VERBOSE_LOG === "true" ? true : false;
 const COMMITMENT_LEVEL = process.env.COMMITMENT || "confirmed";
 const USE_PRIORITY_FEE = process.env.USE_PRIORITY_FEE == "true" ? true : false;
 
+const TX_RETRY_INTERVAL = 2000;
+
 if (VERBOSE_LOG) console.log(`${new Date().toISOString()} Starting script`);
 
 // Set up web3 client
@@ -82,6 +84,7 @@ async function pingThing() {
     let slotLanded;
     let signature;
     let txStart;
+    let txSendAttempts = 1;
 
     // Wait fresh data
     while (true) {
@@ -124,24 +127,65 @@ async function pingThing() {
         tx.recentBlockhash = blockhash.blockhash;
         tx.sign(USER_KEYPAIR);
 
-        if (VERBOSE_LOG) console.log(`${new Date().toISOString()} sending: ${bs58.encode(tx.signatures[0].signature)}`);
+        const signatureRaw = tx.signatures[0].signature;
+        signature = bs58.encode(signatureRaw);
 
-        // Send and wait confirmation
-        txStart = Date.now();
-        signature = await liteRpcConnection.sendRawTransaction(tx.serialize(), {
-          skipPreflight: true,
-        });
-        const result = await rpcConnection.confirmTransaction(
+        if (VERBOSE_LOG)
+          console.log(`${new Date().toISOString()} sending: ${signature}`);
+
+        // Send and wait confirmation (subscribe on confirmation before sending)
+        const resultPromise = rpcConnection.confirmTransaction(
           {
             signature,
             blockhash: tx.recentBlockhash,
             lastValidBlockHeight: tx.lastValidBlockHeight,
           },
-          COMMITMENT_LEVEL,
+          COMMITMENT_LEVEL
         );
-        if (result.value.err) {
+
+        txStart = Date.now();
+        const sendTxResult = await liteRpcConnection.sendRawTransaction(
+          tx.serialize(),
+          {
+            skipPreflight: true,
+            maxRetries: 0
+          }
+        );
+
+        if (sendTxResult !== signature) {
           throw new Error(
-            `Transaction ${signature} failed (${JSON.stringify(result.value)})`,
+            `Receive invalid signature from sendRawTransaction: ${sendTxResult}, expected ${signature}`
+          );
+        }
+
+        let confirmedTransaction = null;
+
+        while (!confirmedTransaction) {
+          confirmedTransaction = await Promise.race([
+            resultPromise,
+            new Promise((resolve) =>
+              setTimeout(() => {
+                resolve(null);
+              }, TX_RETRY_INTERVAL)
+            ),
+          ]);
+          if (confirmedTransaction) {
+            break;
+          }
+
+          console.log(
+            `${new Date().toISOString()} Tx not confirmed after ${TX_RETRY_INTERVAL * txSendAttempts++}ms, resending`
+          );
+
+          await liteRpcConnection.sendRawTransaction(tx.serialize(), {
+            skipPreflight: true,
+            maxRetries: 0
+          });
+        }
+
+        if (confirmedTransaction.value.err) {
+          throw new Error(
+            `Transaction ${signature} failed (${JSON.stringify(confirmedTransaction.value)})`
           );
         }
       } catch (e) {
