@@ -31,7 +31,7 @@ const skipValidatorsApp = process.argv.includes("--skip-validators-app");
 dotenv.config();
 const RPC_ENDPOINT = process.env.RPC_ENDPOINT;
 const USER_KEYPAIR = web3.Keypair.fromSecretKey(
-  bs58.decode(process.env.WALLET_PRIVATE_KEYPAIR),
+  bs58.decode(process.env.WALLET_PRIVATE_KEYPAIR)
 );
 const JUPITER_ENDPOINT = `${RPC_ENDPOINT}/jupiter`;
 
@@ -42,9 +42,13 @@ const VA_API_KEY = process.env.VA_API_KEY;
 const VERBOSE_LOG = process.env.VERBOSE_LOG === "true" ? true : false;
 const COMMITMENT_LEVEL = process.env.COMMITMENT || "confirmed";
 
-const SWAP_TOKEN_FROM = "So11111111111111111111111111111111111111112" // SOL
-const SWAP_TOKEN_TO = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" // USDC
+const SWAP_TOKEN_FROM = "So11111111111111111111111111111111111111112"; // SOL
+const SWAP_TOKEN_TO = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"; // USDC
 const SWAP_AMOUNT = 1000;
+
+const TX_RETRY_INTERVAL = 2000;
+
+const PRIORITY_FEE_MICRO_LAMPORTS = process.env.PRIORITY_FEE_MICRO_LAMPORTS || 1000;
 
 if (VERBOSE_LOG) console.log(`${new Date().toISOString()} Starting script`);
 
@@ -59,7 +63,6 @@ const gBlockhash = { value: null, updated_at: 0 };
 const gSlotSent = { value: null, updated_at: 0 };
 
 async function pingThing() {
-
   // Pre-define loop constants & variables
   const FAKE_SIGNATURE =
     "9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999";
@@ -70,7 +73,6 @@ async function pingThing() {
 
   // Loop until interrupted
   for (let i = 0; ; ++i) {
-
     // Sleep before the next loop
     if (i > 0) {
       await sleep(SLEEP_MS_LOOP);
@@ -103,22 +105,32 @@ async function pingThing() {
 
     try {
       try {
-
-        if (VERBOSE_LOG) console.log(`${new Date().toISOString()} fetching jupiter swap quote`);
+        if (VERBOSE_LOG)
+          console.log(
+            `${new Date().toISOString()} fetching jupiter swap quote`
+          );
 
         // Get quote for swap
-        tempResponse = await axios.get(`${JUPITER_ENDPOINT}/quote?inputMint=${SWAP_TOKEN_FROM}&outputMint=${SWAP_TOKEN_TO}&amount=${SWAP_AMOUNT}&slippageBps=50`);
+        tempResponse = await axios.get(
+          `${JUPITER_ENDPOINT}/quote?inputMint=${SWAP_TOKEN_FROM}&outputMint=${SWAP_TOKEN_TO}&amount=${SWAP_AMOUNT}&slippageBps=50`
+        );
 
         // throw error if response is not ok
         if (!(tempResponse.status >= 200) && tempResponse.status < 300) {
-          throw new Error(`Failed to fetch jupiter swap quote: ${tempResponse.status}`);
+          throw new Error(
+            `Failed to fetch jupiter swap quote: ${tempResponse.status}`
+          );
         }
 
         quoteResponse = tempResponse.data;
 
-        if (VERBOSE_LOG) console.log(`${new Date().toISOString()} fetched jupiter swap quote`);
+        if (VERBOSE_LOG)
+          console.log(`${new Date().toISOString()} fetched jupiter swap quote`);
 
-        if (VERBOSE_LOG) console.log(`${new Date().toISOString()} fetching jupiter swap transaction`);
+        if (VERBOSE_LOG)
+          console.log(
+            `${new Date().toISOString()} fetching jupiter swap transaction`
+          );
 
         // Get swap transaction
         tempResponse = await axios.post(`${JUPITER_ENDPOINT}/swap`, {
@@ -126,42 +138,87 @@ async function pingThing() {
           userPublicKey: USER_KEYPAIR.publicKey.toBase58(),
           wrapAndUnwrapSol: true,
           dynamicComputeUnitLimit: true,
+          prioritizationFeeLamports: PRIORITY_FEE_MICRO_LAMPORTS * 1000,
         });
         // throw error if response is not ok
         if (!(tempResponse.status >= 200) && tempResponse.status < 300) {
-          throw new Error(`Failed to fetch jupiter swap transaction: ${tempResponse.status}`);
+          throw new Error(
+            `Failed to fetch jupiter swap transaction: ${tempResponse.status}`
+          );
         }
 
         jupiterSwapTransaction = tempResponse.data;
 
-        if (VERBOSE_LOG) console.log(`${new Date().toISOString()} fetched jupiter swap transaction`);
+        if (VERBOSE_LOG)
+          console.log(
+            `${new Date().toISOString()} fetched jupiter swap transaction`
+          );
 
-        const swapTransactionBuf = Buffer.from(jupiterSwapTransaction.swapTransaction, 'base64');
+        const swapTransactionBuf = Buffer.from(
+          jupiterSwapTransaction.swapTransaction,
+          "base64"
+        );
         const tx = VersionedTransaction.deserialize(swapTransactionBuf);
+        tx.message.recentBlockhash = blockhash.blockhash;
 
         // Sign
         tx.sign([USER_KEYPAIR]);
 
-        if (VERBOSE_LOG) console.log(`${new Date().toISOString()} sending swap transaction`);
+        const signatureRaw = tx.signatures[0];
+        let txSignature = bs58.encode(signatureRaw);
+
+        let txSendAttempts = 1;
+
+        if (VERBOSE_LOG)
+          console.log(`${new Date().toISOString()} sending swap transaction`);
 
         txStart = Date.now();
+
+        const confirmTransactionPromise = connection.confirmTransaction(
+          {
+            signature: txSignature,
+            blockhash: blockhash.blockhash,
+            lastValidBlockHeight: blockhash.lastValidBlockHeight,
+          },
+          COMMITMENT_LEVEL
+        );
 
         // Send and wait confirmation
         signature = await connection.sendRawTransaction(tx.serialize(), {
           skipPreflight: true,
+          maxRetries: 0,
         });
 
-        if (VERBOSE_LOG) console.log(`${new Date().toISOString()} confirming swap transaction ${signature}`);
+        let confirmedTx = null;
+        while (!confirmedTx) {
+          confirmedTx = await Promise.race([
+            confirmTransactionPromise,
+            new Promise((resolve) =>
+              setTimeout(() => {
+                resolve(null);
+              }, TX_RETRY_INTERVAL)
+            ),
+          ]);
+          if (confirmedTx) {
+            break;
+          }
 
-        const result = await connection.confirmTransaction(
-          {
-            signature,
-            blockhash: blockhash.blockhash,
-            lastValidBlockHeight: blockhash.lastValidBlockHeight,
-          },
-          COMMITMENT_LEVEL,
-        );
+          console.log(
+            `${new Date().toISOString()} Tx not confirmed after ${
+              TX_RETRY_INTERVAL * txSendAttempts++
+            }ms, resending`
+          );
 
+          await connection.sendRawTransaction(tx.serialize(), {
+            skipPreflight: true,
+            maxRetries: 0,
+          });
+        }
+
+        if (VERBOSE_LOG)
+          console.log(
+            `${new Date().toISOString()} confirming swap transaction ${signature}`
+          );
       } catch (e) {
         // Log and loop if we get a bad blockhash.
         if (e.message.includes("Blockhash not found")) {
@@ -173,7 +230,7 @@ async function pingThing() {
         // to VA. Otherwise log and loop.
         if (e.name === "TransactionExpiredBlockheightExceededError") {
           console.log(
-            `${new Date().toISOString()} ERROR: Blockhash expired/block height exceeded. TX failure sent to VA.`,
+            `${new Date().toISOString()} ERROR: Blockhash expired/block height exceeded. TX failure sent to VA.`
           );
         } else {
           console.log(`${new Date().toISOString()} ERROR: ${e.name}`);
@@ -200,7 +257,7 @@ async function pingThing() {
         if (txLanded === null) {
           console.log(
             signature,
-            `${new Date().toISOString()} ERROR: tx is not found on RPC within ${SLEEP_MS_RPC}ms. Not sending to VA.`,
+            `${new Date().toISOString()} ERROR: tx is not found on RPC within ${SLEEP_MS_RPC}ms. Not sending to VA.`
           );
           continue;
         }
@@ -211,7 +268,7 @@ async function pingThing() {
       if (slotLanded < slotSent) {
         console.log(
           signature,
-          `${new Date().toISOString()} ERROR: Slot ${slotLanded} < ${slotSent}. Not sending to VA.`,
+          `${new Date().toISOString()} ERROR: Slot ${slotLanded} < ${slotSent}. Not sending to VA.`
         );
         continue;
       }
@@ -234,22 +291,28 @@ async function pingThing() {
 
       if (!skipValidatorsApp) {
         // Send the payload to validators.app
-        const vaResponse = await axios.post("https://www.validators.app/api/v1/ping-thing/mainnet", vAPayload, {
-          headers: {
-            "Content-Type": "application/json",
-            "Token": VA_API_KEY
+        const vaResponse = await axios.post(
+          "https://www.validators.app/api/v1/ping-thing/mainnet",
+          vAPayload,
+          {
+            headers: {
+              "Content-Type": "application/json",
+              Token: VA_API_KEY,
+            },
           }
-        });
+        );
         // throw error if response is not ok
         if (!(vaResponse.status >= 200 && vaResponse.status <= 299)) {
           throw new Error(`Failed to update validators: ${vaResponse.status}`);
         }
 
         if (VERBOSE_LOG) {
-          console.log(`${new Date().toISOString()} VA Response ${vaResponse.status} ${JSON.stringify(vaResponse.data)}`);
+          console.log(
+            `${new Date().toISOString()} VA Response ${vaResponse.status} ${JSON.stringify(vaResponse.data)}`
+          );
         }
       }
-      
+
       // Reset the try counter
       tryCount = 0;
     } catch (e) {
@@ -260,4 +323,8 @@ async function pingThing() {
   }
 }
 
-await Promise.all([watchBlockhash(gBlockhash, connection), watchSlotSent(gSlotSent,connection), pingThing()]);
+await Promise.all([
+  watchBlockhash(gBlockhash, connection),
+  watchSlotSent(gSlotSent, connection),
+  pingThing(),
+]);
