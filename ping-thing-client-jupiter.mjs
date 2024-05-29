@@ -48,6 +48,8 @@ const SWAP_AMOUNT = 1000;
 
 const TX_RETRY_INTERVAL = 2000;
 
+const PRIORITY_FEE_MICRO_LAMPORTS = process.env.PRIORITY_FEE_MICRO_LAMPORTS || 1000;
+
 if (VERBOSE_LOG) console.log(`${new Date().toISOString()} Starting script`);
 
 // Set up web3 client
@@ -86,8 +88,6 @@ async function pingThing() {
 
     let quoteResponse;
     let jupiterSwapTransaction;
-
-    let txSendAttempts = 1;
 
     // Wait fresh data
     while (true) {
@@ -138,6 +138,7 @@ async function pingThing() {
           userPublicKey: USER_KEYPAIR.publicKey.toBase58(),
           wrapAndUnwrapSol: true,
           dynamicComputeUnitLimit: true,
+          prioritizationFeeLamports: PRIORITY_FEE_MICRO_LAMPORTS * 1000,
         });
         // throw error if response is not ok
         if (!(tempResponse.status >= 200) && tempResponse.status < 300) {
@@ -158,63 +159,54 @@ async function pingThing() {
           "base64"
         );
         const tx = VersionedTransaction.deserialize(swapTransactionBuf);
-
-        let blockhash = await connection.getLatestBlockhash();
         tx.message.recentBlockhash = blockhash.blockhash;
 
         // Sign
         tx.sign([USER_KEYPAIR]);
 
         const signatureRaw = tx.signatures[0];
-        signature = bs58.encode(signatureRaw);
-        console.log("SEE");
-        console.log(signature);
+        let txSignature = bs58.encode(signatureRaw);
+
+        let txSendAttempts = 1;
 
         if (VERBOSE_LOG)
-          console.log(`${new Date().toISOString()} sending: ${signature}`);
+          console.log(`${new Date().toISOString()} sending swap transaction`);
 
-        // Send and wait confirmation (subscribe on confirmation before sending)
-        const resultPromise = connection.confirmTransaction(
+        txStart = Date.now();
+
+        const confirmTransactionPromise = connection.confirmTransaction(
           {
-            signature,
-            blockhash: blockhash.recentBlockhash,
+            signature: txSignature,
+            blockhash: blockhash.blockhash,
             lastValidBlockHeight: blockhash.lastValidBlockHeight,
           },
           COMMITMENT_LEVEL
         );
 
-        txStart = Date.now();
-        const sendTxResult = await connection.sendRawTransaction(
-          tx.serialize(),
-          {
-            skipPreflight: true,
-            maxRetries: 0,
-          }
-        );
+        // Send and wait confirmation
+        signature = await connection.sendRawTransaction(tx.serialize(), {
+          skipPreflight: true,
+          maxRetries: 0,
+        });
 
-        if (sendTxResult !== signature) {
-          throw new Error(
-            `Receive invalid signature from sendRawTransaction: ${sendTxResult}, expected ${signature}`
-          );
-        }
-
-        let confirmedTransaction = null;
-
-        while (!confirmedTransaction) {
-          confirmedTransaction = await Promise.race([
-            resultPromise,
+        let confirmedTx = null;
+        while (!confirmedTx) {
+          confirmedTx = await Promise.race([
+            confirmTransactionPromise,
             new Promise((resolve) =>
               setTimeout(() => {
                 resolve(null);
               }, TX_RETRY_INTERVAL)
             ),
           ]);
-          if (confirmedTransaction) {
+          if (confirmedTx) {
             break;
           }
 
           console.log(
-            `${new Date().toISOString()} Tx not confirmed after ${TX_RETRY_INTERVAL * txSendAttempts++}ms, resending`
+            `${new Date().toISOString()} Tx not confirmed after ${
+              TX_RETRY_INTERVAL * txSendAttempts++
+            }ms, resending`
           );
 
           await connection.sendRawTransaction(tx.serialize(), {
@@ -223,12 +215,10 @@ async function pingThing() {
           });
         }
 
-        if (confirmedTransaction.value.err) {
-          throw new Error(
-            `Transaction ${signature} failed (${JSON.stringify(confirmedTransaction.value)})`
+        if (VERBOSE_LOG)
+          console.log(
+            `${new Date().toISOString()} confirming swap transaction ${signature}`
           );
-        }
-
       } catch (e) {
         // Log and loop if we get a bad blockhash.
         if (e.message.includes("Blockhash not found")) {
