@@ -138,7 +138,7 @@ async function pingThing() {
           userPublicKey: USER_KEYPAIR.publicKey.toBase58(),
           wrapAndUnwrapSol: true,
           dynamicComputeUnitLimit: true,
-          prioritizationFeeLamports: PRIORITY_FEE_MICRO_LAMPORTS * 1000,
+          prioritizationFeeLamports: PRIORITY_FEE_MICRO_LAMPORTS,
         });
         // throw error if response is not ok
         if (!(tempResponse.status >= 200) && tempResponse.status < 300) {
