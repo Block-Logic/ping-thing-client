@@ -137,9 +137,9 @@ async function pingThing() {
           method: "getRecentPrioritizationFees",
           jsonrpc: "2.0",
           params: [
-            [],
+            ["JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"],
             {
-              percentile: 5500,
+              percentile: 5000,
             },
           ],
           id: "1",
