@@ -48,7 +48,8 @@ const SWAP_AMOUNT = 1000;
 
 const TX_RETRY_INTERVAL = 2000;
 
-const PRIORITY_FEE_MICRO_LAMPORTS = process.env.PRIORITY_FEE_MICRO_LAMPORTS || 1000;
+const PRIORITY_FEE_MICRO_LAMPORTS =
+  process.env.PRIORITY_FEE_MICRO_LAMPORTS || 1000;
 
 if (VERBOSE_LOG) console.log(`${new Date().toISOString()} Starting script`);
 
@@ -132,13 +133,33 @@ async function pingThing() {
             `${new Date().toISOString()} fetching jupiter swap transaction`
           );
 
+        const priorityFeeApiResult = await axios.post(`${RPC_ENDPOINT}`, {
+          method: "getRecentPrioritizationFees",
+          jsonrpc: "2.0",
+          params: [
+            ["JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"],
+            {
+              percentile: 5000,
+            },
+          ],
+          id: "1",
+        });
+        const fees =  priorityFeeApiResult.data.result;
+
+        let feesSum = 0;
+        for(let i=0;i<fees.length;i++){
+          feesSum += fees[i].prioritizationFee;
+        }
+
+        const average = Math.floor(feesSum / fees.length);
+
         // Get swap transaction
         tempResponse = await axios.post(`${JUPITER_ENDPOINT}/swap`, {
           quoteResponse: quoteResponse,
           userPublicKey: USER_KEYPAIR.publicKey.toBase58(),
           wrapAndUnwrapSol: true,
           dynamicComputeUnitLimit: true,
-          prioritizationFeeLamports: PRIORITY_FEE_MICRO_LAMPORTS/1000,
+          prioritizationFeeLamports: average,
         });
         // throw error if response is not ok
         if (!(tempResponse.status >= 200) && tempResponse.status < 300) {
