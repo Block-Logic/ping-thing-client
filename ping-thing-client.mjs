@@ -35,6 +35,10 @@ const USER_KEYPAIR = web3.Keypair.fromSecretKey(
   bs58.decode(process.env.WALLET_PRIVATE_KEYPAIR)
 );
 
+console.log(`RPC_ENDPOINT: ${RPC_ENDPOINT}`);
+console.log(`WS_ENDPOINT: ${WS_ENDPOINT}`);
+console.log('');
+
 const SLEEP_MS_RPC = process.env.SLEEP_MS_RPC || 2000;
 const SLEEP_MS_LOOP = process.env.SLEEP_MS_LOOP || 0;
 const VA_API_KEY = process.env.VA_API_KEY;
