@@ -9,13 +9,13 @@ import { watchBlockhash } from "./utils/blockhash.mjs";
 import { watchSlotSent } from "./utils/slot.mjs";
 import { sleep } from "./utils/misc.mjs";
 
-import { setGlobalDispatcher, Agent } from "undici";
+// import { setGlobalDispatcher, Agent } from "undici";
 
-setGlobalDispatcher(
-  new Agent({
-    connections: 50,
-  })
-);
+// setGlobalDispatcher(
+  // new Agent({
+    // connections: 50,
+  // })
+// );
 
 // Catch interrupts & exit
 process.on("SIGINT", function () {
@@ -35,6 +35,10 @@ const USER_KEYPAIR = web3.Keypair.fromSecretKey(
   bs58.decode(process.env.WALLET_PRIVATE_KEYPAIR)
 );
 
+console.log(`RPC_ENDPOINT: ${RPC_ENDPOINT}`);
+console.log(`WS_ENDPOINT: ${WS_ENDPOINT}`);
+console.log('');
+
 const SLEEP_MS_RPC = process.env.SLEEP_MS_RPC || 2000;
 const SLEEP_MS_LOOP = process.env.SLEEP_MS_LOOP || 0;
 const VA_API_KEY = process.env.VA_API_KEY;
@@ -43,7 +47,7 @@ const VERBOSE_LOG = process.env.VERBOSE_LOG === "true" ? true : false;
 const COMMITMENT_LEVEL = process.env.COMMITMENT || "confirmed";
 const USE_PRIORITY_FEE = process.env.USE_PRIORITY_FEE == "true" ? true : false;
 
-const TX_RETRY_INTERVAL = 2000;
+const TX_RETRY_INTERVAL = process.env.TX_RETRY_INTERVAL || 2000;
 
 if (VERBOSE_LOG) console.log(`${new Date().toISOString()} Starting script`);
 
