@@ -10,17 +10,18 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@solana-program/compute-budget": "^0.3.0",
-    "@solana-program/system": "^0.3.0",
+    "@solana-program/compute-budget": "^0.5.0",
+    "@solana-program/system": "^0.5.0",
+    "@solana/promises": "2.0.0-canary-20240807165603",
     "@solana/signers": "2.0.0-preview.3",
     "@solana/transaction-confirmation": "2.0.0-preview.3",
     "@solana/transactions": "2.0.0-preview.3",
-    "@solana/web3.js": "2.0.0-preview.3",
-    "axios": "^1.6.8",
-    "bs58": "^5.0.0",
+    "@solana/web3.js": "2.0.0-canary-20240808004408",
+    "axios": "^1.7.3",
+    "bs58": "^6.0.0",
     "dotenv": "^16.4.5",
     "js-yaml": "^4.1.0",
-    "undici": "^6.16.0"
+    "undici": "^6.19.5"
   },
   "devDependencies": {
     "@types/node": "^20.12.7"

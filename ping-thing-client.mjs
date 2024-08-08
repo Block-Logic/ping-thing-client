@@ -93,7 +93,7 @@ async function pingThing() {
     let slotLanded;
     let signature;
     let txStart;
-    let txSendAttempts = 0;
+    let txSendAttempts = 1;
 
     // Wait fresh data
     while (true) {
@@ -289,7 +289,8 @@ async function pingThing() {
       // Reset the try counter
       tryCount = 0;
     } catch (e) {
-      console.log(`ERROR: ${e}`);
+      console.log(`ERRORR: ${e}`);
+      console.log(e);
       if (++tryCount === MAX_TRIES) throw e;
     }
   }
