@@ -169,6 +169,15 @@ async function pingThing() {
         let confirmedTransaction = null;
 
         while (!confirmedTransaction) {
+          const resultPromise = connection.confirmTransaction(
+            {
+              signature,
+              blockhash: tx.recentBlockhash,
+              lastValidBlockHeight: tx.lastValidBlockHeight,
+            },
+            COMMITMENT_LEVEL
+          );
+
           confirmedTransaction = await Promise.race([
             resultPromise,
             new Promise((resolve) =>
