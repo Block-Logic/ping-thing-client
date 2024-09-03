@@ -41,12 +41,17 @@ const skipValidatorsApp = process.argv.includes("--skip-validators-app");
 // Read constants from .env
 dotenv.config();
 const RPC_ENDPOINT = process.env.RPC_ENDPOINT;
+const WS_ENDPOINT = process.env.WS_ENDPOINT;
 const USER_KEYPAIR = Keypair.fromSecretKey(
   bs58.decode(process.env.WALLET_PRIVATE_KEYPAIR)
 );
 
 const VERBOSE_LOG = process.env.VERBOSE_LOG === "true" ? true : false;
 if (VERBOSE_LOG) console.log(`${new Date().toISOString()} Starting script`);
+
+console.log(`RPC_ENDPOINT: ${RPC_ENDPOINT}`);
+console.log(`WS_ENDPOINT: ${WS_ENDPOINT}`);
+console.log('');
 
 const SLEEP_MS_RPC = process.env.SLEEP_MS_RPC || 2000;
 const SLEEP_MS_LOOP = process.env.SLEEP_MS_LOOP || 0;
@@ -63,6 +68,10 @@ const TX_RETRY_INTERVAL = 2000;
 // Set up web3 client
 const connection = new Connection(RPC_ENDPOINT, {
   commitment: COMMITMENT_LEVEL,
+});
+
+const connectionWs = new Connection(RPC_ENDPOINT, {
+  wsEndpoint: WS_ENDPOINT,
 });
 
 const gBlockhash = { value: null, updated_at: 0 };
@@ -142,7 +151,7 @@ async function pingThing() {
           console.log(`${new Date().toISOString()} sending: ${signature}`);
 
         // Send and wait confirmation (subscribe on confirmation before sending)
-        const resultPromise = connection.confirmTransaction(
+        const resultPromise = connectionWs.confirmTransaction(
           {
             signature,
             blockhash: tx.recentBlockhash,
@@ -169,7 +178,7 @@ async function pingThing() {
         let confirmedTransaction = null;
 
         while (!confirmedTransaction) {
-          const resultPromise = connection.confirmTransaction(
+          const resultPromise = connectionWs.confirmTransaction(
             {
               signature,
               blockhash: tx.recentBlockhash,
