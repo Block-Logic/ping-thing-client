@@ -30,6 +30,7 @@ const skipValidatorsApp = process.argv.includes("--skip-validators-app");
 // Read constants from .env
 dotenv.config();
 const RPC_ENDPOINT = process.env.RPC_ENDPOINT;
+const WS_ENDPOINT = process.env.WS_ENDPOINT;
 const USER_KEYPAIR = web3.Keypair.fromSecretKey(
   bs58.decode(process.env.WALLET_PRIVATE_KEYPAIR)
 );
@@ -41,6 +42,7 @@ const VA_API_KEY = process.env.VA_API_KEY;
 // process.env.VERBOSE_LOG returns a string. e.g. 'true'
 const VERBOSE_LOG = process.env.VERBOSE_LOG === "true" ? true : false;
 const COMMITMENT_LEVEL = process.env.COMMITMENT || "confirmed";
+const PRIORITY_FEE_PERCENTILE = process.env.PRIORITY_FEE_PERCENTILE || 5000;
 
 const SWAP_TOKEN_FROM = "So11111111111111111111111111111111111111112"; // SOL
 const SWAP_TOKEN_TO = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"; // USDC
@@ -53,9 +55,17 @@ const PRIORITY_FEE_MICRO_LAMPORTS =
 
 if (VERBOSE_LOG) console.log(`${new Date().toISOString()} Starting script`);
 
+console.log(`RPC_ENDPOINT: ${RPC_ENDPOINT}`);
+console.log(`WS_ENDPOINT: ${WS_ENDPOINT}`);
+console.log("");
+
 // Set up web3 client
 const connection = new web3.Connection(RPC_ENDPOINT, {
   commitment: COMMITMENT_LEVEL,
+});
+
+const connectionWs = new web3.Connection(RPC_ENDPOINT, {
+  wsEndpoint: WS_ENDPOINT,
 });
 
 const gBlockhash = { value: null, updated_at: 0 };
@@ -139,15 +149,15 @@ async function pingThing() {
           params: [
             ["JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"],
             {
-              percentile: 5000,
+              percentile: parseInt(PRIORITY_FEE_PERCENTILE),
             },
           ],
           id: "1",
         });
-        const fees =  priorityFeeApiResult.data.result;
+        const fees = priorityFeeApiResult.data.result;
 
         let feesSum = 0;
-        for(let i=0;i<fees.length;i++){
+        for (let i = 0; i < fees.length; i++) {
           feesSum += fees[i].prioritizationFee;
         }
 
@@ -195,7 +205,7 @@ async function pingThing() {
 
         txStart = Date.now();
 
-        const confirmTransactionPromise = connection.confirmTransaction(
+        const confirmTransactionPromise = connectionWs.confirmTransaction(
           {
             signature: txSignature,
             blockhash: blockhash.blockhash,
@@ -203,6 +213,8 @@ async function pingThing() {
           },
           COMMITMENT_LEVEL
         );
+
+        slotSent = gSlotSent.value;
 
         // Send and wait confirmation
         signature = await connection.sendRawTransaction(tx.serialize(), {
@@ -212,6 +224,15 @@ async function pingThing() {
 
         let confirmedTx = null;
         while (!confirmedTx) {
+          const confirmTransactionPromise = connectionWs.confirmTransaction(
+            {
+              signature: txSignature,
+              blockhash: blockhash.blockhash,
+              lastValidBlockHeight: blockhash.lastValidBlockHeight,
+            },
+            COMMITMENT_LEVEL
+          );
+
           confirmedTx = await Promise.race([
             confirmTransactionPromise,
             new Promise((resolve) =>
