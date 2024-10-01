@@ -8,14 +8,18 @@ import axios from "axios";
 import { watchBlockhash } from "./utils/blockhash.mjs";
 import { watchSlotSent } from "./utils/slot.mjs";
 import { sleep } from "./utils/misc.mjs";
-
+import fs from 'fs';
 import { setGlobalDispatcher, Agent } from "undici";
+import { Parser } from "json2csv";
+import { stringify } from "querystring";
 
 setGlobalDispatcher(
   new Agent({
     connections: 50,
   })
 );
+
+const json2csvParser = new Parser();
 
 // Catch interrupts & exit
 process.on("SIGINT", function () {
@@ -165,23 +169,26 @@ async function pingThing() {
         let confirmedTransaction = null;
 
         while (!confirmedTransaction) {
-          const resultPromise = connectionWs.confirmTransaction(
-            {
-              signature,
-              blockhash: tx.recentBlockhash,
-              lastValidBlockHeight: tx.lastValidBlockHeight,
-            },
-            COMMITMENT_LEVEL
-          );
+          // const resultPromise = connectionWs.confirmTransaction(
+          //   {
+          //     signature,
+          //     blockhash: tx.recentBlockhash,
+          //     lastValidBlockHeight: tx.lastValidBlockHeight,
+          //   },
+          //   COMMITMENT_LEVEL
+          // );
 
-          confirmedTransaction = await Promise.race([
-            resultPromise,
-            new Promise((resolve) =>
-              setTimeout(() => {
-                resolve(null);
-              }, TX_RETRY_INTERVAL)
-            ),
-          ]);
+          // const resultPromise = new Promise((resolve) => confirmingTransaction(signature, COMMITMENT_LEVEL)) 
+
+          // confirmedTransaction = await Promise.race([
+          //   resultPromise,
+          //   new Promise((resolve) =>
+          //     setTimeout(() => {
+          //       resolve(null);
+          //     }, TX_RETRY_INTERVAL)
+          //   ),
+          // ]);
+          confirmedTransaction = await confirmingTransaction(signature, COMMITMENT_LEVEL);
           if (confirmedTransaction) {
             break;
           }
@@ -230,6 +237,7 @@ async function pingThing() {
       // Sleep a little here to ensure the signature is on an RPC node.
       await sleep(SLEEP_MS_RPC);
       if (signature !== FAKE_SIGNATURE) {
+        console.log("[+] WE HAVE MADE IT TO THIS POINT 🗣️🗣️")
         // Capture the slotLanded
         let txLanded = await connection.getTransaction(signature, {
           commitment: COMMITMENT_LEVEL,
@@ -255,8 +263,7 @@ async function pingThing() {
       }
 
       // prepare the payload to send to validators.app
-      const vAPayload = JSON.stringify({
-        time: txEnd - txStart,
+      let jsonData = {
         signature,
         transaction_type: "transfer",
         success: signature !== FAKE_SIGNATURE,
@@ -264,31 +271,64 @@ async function pingThing() {
         commitment_level: COMMITMENT_LEVEL,
         slot_sent: slotSent,
         slot_landed: slotLanded,
-      });
+        time_difference: txEnd - txStart,
+        slotLatency : slotLanded - slotSent,
+      }
+      const vAPayload = JSON.stringify(jsonData);
+
+      // let slotLatency = slotLanded - slotSent;
+      // jsonData.slot_latency = slotLatency;
+
       if (VERBOSE_LOG) {
         console.log(`${new Date().toISOString()} ${vAPayload}`);
       }
 
       if (!skipValidatorsApp) {
         // Send the payload to validators.app
-        const vaResponse = await axios.post(
-          "https://www.validators.app/api/v1/ping-thing/mainnet",
-          vAPayload,
-          {
-            headers: {
-              "Content-Type": "application/json",
-              "Token": VA_API_KEY,
-            },
-          }
-        );
-        // throw error if response is not ok
-        if (!(vaResponse.status >= 200 && vaResponse.status <= 299)) {
-          throw new Error(`Failed to update validators: ${vaResponse.status}`);
+        // const vaResponse = await axios.post(
+        //   "https://www.validators.app/api/v1/ping-thing/mainnet",
+        //   vAPayload,
+        //   {
+        //     headers: {
+        //       "Content-Type": "application/json",
+        //       "Token": VA_API_KEY,
+        //     },
+        //   }
+        // );
+
+        // Convert JSON to CSV
+        
+        const csv = json2csvParser.parse(jsonData);
+        const csvFilePath = process.env.OUTFILE;
+        // Write CSV to a file
+        if (!fs.existsSync(csvFilePath)) {
+          // Write headers and data if the file does not exist
+          fs.writeFile(csvFilePath, csv + '\n', (err) => {
+            if (err) {
+              console.error('Error writing to CSV file', err);
+            } else {
+              console.log('CSV file has been created and data has been appended.');
+            }
+          });
+        } else {
+          // Append only data if the file exists
+          const csvData = csv.split('\n').slice(1).join('\n'); // Remove headers
+          fs.appendFile(csvFilePath, csvData + '\n', (err) => {
+            if (err) {
+              console.error('Error appending to CSV file', err);
+            } else {
+              console.log('CSV data has been appended to file.');
+            }
+          });
         }
+        // throw error if response is not ok
+        // if (!(vaResponse.status >= 200 && vaResponse.status <= 299)) {
+        //   throw new Error(`Failed to update validators: ${vaResponse.status}`);
+        // }
 
         if (VERBOSE_LOG) {
           console.log(
-            `${new Date().toISOString()} VA Response ${vaResponse.status} ${JSON.stringify(vaResponse.data)}`
+            `${stringify(jsonData)}`
           );
         }
       }
@@ -308,3 +348,31 @@ await Promise.all([
   watchSlotSent(gSlotSent, connection),
   pingThing(),
 ]);
+
+async function confirmingTransaction(signature, confiirmStatus) {
+  // let confirm = false;
+  let returnValue = null;
+  while (true) {
+    const fromGetSignatureStatuses = await connectionWs.getSignatureStatuses(
+      [signature],
+      {
+        searchTransactionHistory: true,
+      }
+    );
+
+    if (fromGetSignatureStatuses.value[0] === null) {
+      console.log(`${new Date().toISOString()}`, fromGetSignatureStatuses);
+      continue;
+    }
+
+    let status = fromGetSignatureStatuses.value[0].confirmationStatus;
+    if (status === confiirmStatus) {
+      returnValue = fromGetSignatureStatuses;
+      console.log(fromGetSignatureStatuses);
+      break;
+    }
+
+  }
+  // console.log(returnValue);
+  return returnValue;
+}

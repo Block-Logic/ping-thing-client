@@ -7,7 +7,8 @@
     "dotenv": "^16.3.1",
     "install": "^0.13.0",
     "undici": "^6.17.0",
-    "xhr2": "^0.2.1"
+    "xhr2": "^0.2.1",
+    "json2csv": "^6.0.0-alpha.2"
   },
   "devDependencies": {
     "prettier": "^3.0.3"
