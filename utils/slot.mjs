@@ -2,10 +2,6 @@ import { sleep } from "./misc.mjs";
 
 import { createSolanaRpcSubscriptions_UNSTABLE } from "@solana/web3.js";
 
-import whyIsNodeRunning from 'why-is-node-running';
-// To access this at any time, attach the debugger, press pause, and type `whyIsNodeRunning()`.
-globalThis.whyIsNodeRunning = whyIsNodeRunning;
-
 const MAX_SLOT_FETCH_ATTEMPTS = process.env.MAX_SLOT_FETCH_ATTEMPTS || 100;
 let attempts = 0;
 const abortController = new AbortController();
