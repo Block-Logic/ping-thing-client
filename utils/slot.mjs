@@ -2,6 +2,10 @@ import { sleep } from "./misc.mjs";
 
 import { createSolanaRpcSubscriptions_UNSTABLE } from "@solana/web3.js";
 
+import whyIsNodeRunning from 'why-is-node-running';
+// To access this at any time, attach the debugger, press pause, and type `whyIsNodeRunning()`.
+globalThis.whyIsNodeRunning = whyIsNodeRunning;
+
 const MAX_SLOT_FETCH_ATTEMPTS = process.env.MAX_SLOT_FETCH_ATTEMPTS || 100;
 let attempts = 0;
 const abortController = new AbortController();
@@ -13,7 +17,7 @@ export const watchSlotSent = async (gSlotSent, rpcSubscriptions) => {
       .subscribe({ abortSignal: abortController.signal });
 
     for await (const notification of slotNotifications) {
-      if (notification.type === "firstShredReceived") {
+      if (notification.type === "firstShredReceived" || notification.type === "completed") {
         gSlotSent.value = notification.slot;
         gSlotSent.updated_at = Date.now();
         attempts = 0;
@@ -27,7 +31,7 @@ export const watchSlotSent = async (gSlotSent, rpcSubscriptions) => {
 
       if (attempts >= MAX_SLOT_FETCH_ATTEMPTS) {
         console.log(
-          `ERROR: Max attempts for fetching slot type "firstShredReceived" reached, exiting`
+          `ERROR: Max attempts for fetching slot type "firstShredReceived" or "completed" reached, exiting`
         );
         process.exit(0);
       }
