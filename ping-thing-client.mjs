@@ -30,10 +30,6 @@ import axios from "axios";
 
 dotenv.config();
 
-import whyIsNodeRunning from 'why-is-node-running';
-// To access this at any time, attach the debugger, press pause, and type `whyIsNodeRunning()`.
-globalThis.whyIsNodeRunning = whyIsNodeRunning;
-
 const orignalConsoleLog = console.log;
 console.log = function (...message) {
   const dateTime = new Date().toUTCString();

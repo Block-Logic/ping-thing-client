@@ -55,7 +55,6 @@
     "@solana/transactions": "2.0.0-canary-20241012053956"
   },
   "devDependencies": {
-    "@types/node": "^20.12.7",
-    "why-is-node-running": "^3.2.0"
+    "@types/node": "^20.12.7"
   }
 }
