@@ -13,7 +13,10 @@ export const watchSlotSent = async (gSlotSent, rpcSubscriptions) => {
       .subscribe({ abortSignal: abortController.signal });
 
     for await (const notification of slotNotifications) {
-      if (notification.type === "firstShredReceived" || notification.type === "completed") {
+      if (
+        notification.type === "firstShredReceived" ||
+        notification.type === "completed"
+      ) {
         gSlotSent.value = notification.slot;
         gSlotSent.updated_at = Date.now();
         attempts = 0;

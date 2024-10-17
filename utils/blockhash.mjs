@@ -1,6 +1,7 @@
 import { sleep } from "./misc.mjs";
 
-const MAX_BLOCKHASH_FETCH_ATTEMPTS = process.env.MAX_BLOCKHASH_FETCH_ATTEMPTS || 5;
+const MAX_BLOCKHASH_FETCH_ATTEMPTS =
+  process.env.MAX_BLOCKHASH_FETCH_ATTEMPTS || 5;
 let attempts = 0;
 
 export const watchBlockhash = async (gBlockhash, connection) => {
@@ -29,10 +30,12 @@ export const watchBlockhash = async (gBlockhash, connection) => {
       ]);
 
       gBlockhash.value = latestBlockhash.value.blockhash;
-      gBlockhash.lastValidBlockHeight = latestBlockhash.value.lastValidBlockHeight;
+      gBlockhash.lastValidBlockHeight =
+        latestBlockhash.value.lastValidBlockHeight;
 
       gBlockhash.updated_at = Date.now();
       attempts = 0;
+      console.log("BLOCKHASH UPDATED");
     } catch (error) {
       gBlockhash.value = null;
       gBlockhash.updated_at = 0;
