@@ -12,6 +12,12 @@ export const watchSlotSent = async (gSlotSent, connection) => {
           gSlotSent.updated_at = Date.now();
           attempts = 0;
         }
+
+        if(value.type==="completed") {
+          gSlotSent.value = value.slot + 1n;
+          gSlotSent.updated_at = Date.now();
+          attempts = 0;
+        }
       });
 
       // do not re-subscribe before first update, max 60s
