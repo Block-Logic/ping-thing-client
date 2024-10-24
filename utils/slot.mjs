@@ -13,8 +13,8 @@ export const watchSlotSent = async (gSlotSent, connection) => {
           attempts = 0;
         }
 
-        if(value.type==="completed") {
-          gSlotSent.value = value.slot + 1n;
+        if (value.type === "completed") {
+          gSlotSent.value = value.slot + 1;
           gSlotSent.updated_at = Date.now();
           attempts = 0;
         }
