@@ -35,7 +35,7 @@ export const watchBlockhash = async (gBlockhash, connection) => {
 
       gBlockhash.updated_at = Date.now();
       attempts = 0;
-      console.log("BLOCKHASH UPDATED");
+
     } catch (error) {
       gBlockhash.value = null;
       gBlockhash.updated_at = 0;

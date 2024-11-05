@@ -81,8 +81,6 @@ async function pingThing() {
   const feePayer = await getAddressFromPublicKey(USER_KEYPAIR.publicKey);
   const signer = await createSignerFromKeyPair(USER_KEYPAIR);
 
-  console.log("ONE");
-
   while (true) {
     await sleep(SLEEP_MS_LOOP);
 
@@ -93,7 +91,6 @@ async function pingThing() {
     let signature;
     let txStart;
     let txSendAttempts = 1;
-    console.log("TWO");
 
     // Wait fresh data
     while (true) {
@@ -109,7 +106,6 @@ async function pingThing() {
 
       await sleep(1);
     }
-    console.log("THREE");
 
     try {
       try {
@@ -148,22 +144,20 @@ async function pingThing() {
         txStart = Date.now();
 
         console.log(`Sending ${signature}`);
-        console.log("FOUR");
 
         const mSendTransaction = sendTransactionWithoutConfirmingFactory({
           rpc: connection,
         });
-        console.log("FIVE");
+
         const getRecentSignatureConfirmationPromise =
           createRecentSignatureConfirmationPromiseFactory({
             rpc: connection,
             rpcSubscriptions,
           });
-        console.log("SIX");
+
         setMaxListeners(100);
         const abortController = new AbortController();
 
-        console.log("SEVEN");
         while (true) {
           try {
             await mSendTransaction(transactionSignedWithFeePayer, {
@@ -171,7 +165,7 @@ async function pingThing() {
               maxRetries: 0n,
               skipPreflight: true,
             });
-            console.log("EIGHT");
+
             await Promise.race([
               getRecentSignatureConfirmationPromise({
                 signature,
@@ -182,7 +176,7 @@ async function pingThing() {
                 throw new Error("Tx Send Timeout");
               }),
             ]);
-            console.log("NINE");
+
             console.log(`Confirmed tx ${signature}`);
 
             break;
@@ -193,7 +187,6 @@ async function pingThing() {
               }ms, resending`
             );
           }
-          console.log("TEN");
         }
       } catch (e) {
         // Log and loop if we get a bad blockhash.
@@ -222,12 +215,11 @@ async function pingThing() {
         // Need to submit a fake signature to pass the import filters
         signature = FAKE_SIGNATURE;
       }
-      console.log("ELEVEN");
+
       const txEnd = Date.now();
       // Sleep a little here to ensure the signature is on an RPC node.
       await sleep(SLEEP_MS_RPC);
       if (signature !== FAKE_SIGNATURE) {
-        console.log("TWELVE");
         // Capture the slotLanded
         let txLanded = await connection
           .getTransaction(signature, {
@@ -244,7 +236,7 @@ async function pingThing() {
         }
         slotLanded = txLanded.slot;
       }
-      console.log("THIRTEEN");
+
       // Don't send if the slot latency is negative
       if (slotLanded < slotSent) {
         console.log(
@@ -294,11 +286,11 @@ async function pingThing() {
           );
         }
       }
-      console.log("FOURTEEN");
+
       // Reset the try counter
       tryCount = 0;
     } catch (e) {
-      console.log(`ERRORR: ${e}`);
+      console.log(`ERROR`);
       console.log(e);
       if (++tryCount === MAX_TRIES) throw e;
     }

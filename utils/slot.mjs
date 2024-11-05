@@ -15,10 +15,6 @@ export const watchSlotSent = async (gSlotSent, rpcSubscriptions) => {
         .subscribe({ abortSignal: abortController.signal });
 
       for await (const notification of slotNotifications) {
-        await fs.appendFile(
-          `slotsLog.log`,
-          `\n${new Date().toUTCString()} ${notification.type}`
-        );
         if (
           notification.type === "firstShredReceived" ||
           notification.type === "completed"
