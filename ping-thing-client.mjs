@@ -15,7 +15,6 @@ import {
   compileTransaction,
   createSolanaRpc,
   SOLANA_ERROR__TRANSACTION_ERROR__BLOCKHASH_NOT_FOUND,
-  // Address,
 } from "@solana/web3.js";
 import dotenv from "dotenv";
 import bs58 from "bs58";
@@ -27,6 +26,7 @@ import { watchBlockhash } from "./utils/blockhash.mjs";
 import { watchSlotSent } from "./utils/slot.mjs";
 import { setMaxListeners } from "events";
 import axios from "axios";
+import { safeRace } from "@solana/promises";
 
 dotenv.config();
 
@@ -297,7 +297,7 @@ async function pingThing() {
   }
 }
 
-await Promise.all([
+await safeRace([
   watchBlockhash(gBlockhash, connection),
   watchSlotSent(gSlotSent, rpcSubscriptions),
   pingThing(),
