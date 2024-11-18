@@ -1,13 +1,14 @@
-import { sleep } from "./misc.mjs";
+import type { Rpc, RpcSubscriptions, SlotNotificationsApi, SlotsUpdatesNotificationsApi, SolanaRpcApi } from "@solana/web3.js";
+import { sleep } from "./misc.js";
 
-const MAX_SLOT_FETCH_ATTEMPTS = process.env.MAX_SLOT_FETCH_ATTEMPTS || 100;
+const MAX_SLOT_FETCH_ATTEMPTS = process.env.MAX_SLOT_FETCH_ATTEMPTS ? parseInt(process.env.MAX_SLOT_FETCH_ATTEMPTS) : 100;
 let attempts = 0;
 
-export const watchSlotSent = async (gSlotSent, rpcSubscriptions) => {
+export const watchSlotSent = async (gSlotSent: { value: bigint | null, updated_at: number }, rpcSubscription: RpcSubscriptions<SlotsUpdatesNotificationsApi>) => {
   while (true) {
     const abortController = new AbortController();
     try {
-      const slotNotifications = await rpcSubscriptions
+      const slotNotifications = await rpcSubscription
         .slotsUpdatesNotifications()
         .subscribe({ abortSignal: abortController.signal });
 
@@ -42,7 +43,7 @@ export const watchSlotSent = async (gSlotSent, rpcSubscriptions) => {
         }
       }
     } catch (e) {
-      console.log(`ERROR:`);
+      console.log(`SLOT FETCHER ERROR:`);
       console.log(e);
       ++attempts;
     } finally {
