@@ -1,5 +1,5 @@
 .env
-*lock*
+*lock.yaml
 node_modules/
 temp.mjs
 *.log
