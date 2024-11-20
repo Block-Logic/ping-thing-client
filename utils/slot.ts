@@ -4,6 +4,8 @@ import { sleep } from "./misc.js";
 const MAX_SLOT_FETCH_ATTEMPTS = process.env.MAX_SLOT_FETCH_ATTEMPTS ? parseInt(process.env.MAX_SLOT_FETCH_ATTEMPTS) : 100;
 let attempts = 0;
 
+const SLOTS_SUBSCRIPTION_DELAY = process.env.SLOTS_SUBSCRIPTION_DELAY ? parseInt(process.env.SLOTS_SUBSCRIPTION_DELAY) : 4000;
+
 export const watchSlotSent = async (gSlotSent: { value: bigint | null, updated_at: number }, rpcSubscription: RpcSubscriptions<SlotsUpdatesNotificationsApi>) => {
   while (true) {
     const abortController = new AbortController();
@@ -46,6 +48,11 @@ export const watchSlotSent = async (gSlotSent: { value: bigint | null, updated_a
       console.log(`SLOT FETCHER ERROR:`);
       console.log(e);
       ++attempts;
+
+      // Wait before retrying to avoid hammering the RPC and letting it recover
+      console.log(`SLOT SUBSCRIPTION TERMINATED ABRUPTLY, SLEEPING FOR ${SLOTS_SUBSCRIPTION_DELAY} BEFORE RETRYING`);
+
+      await sleep(SLOTS_SUBSCRIPTION_DELAY)
     } finally {
       abortController.abort();
     }
