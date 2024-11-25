@@ -1,19 +1,29 @@
-import type { Rpc, RpcSubscriptions, SlotNotificationsApi, SlotsUpdatesNotificationsApi, SolanaRpcApi } from "@solana/web3.js";
+// This is a slot watcher. It constantly subscribes to slot changes and updates a global variable
+
+import type { RpcSubscriptions, SlotsUpdatesNotificationsApi } from "@solana/web3.js";
 import { sleep } from "./misc.js";
 
 const MAX_SLOT_FETCH_ATTEMPTS = process.env.MAX_SLOT_FETCH_ATTEMPTS ? parseInt(process.env.MAX_SLOT_FETCH_ATTEMPTS) : 100;
 let attempts = 0;
 
+// The 2.0 SDK lets us know when a connection is disconnected and we can reconnect
+// But we want to wait for some time to give the server some timet to recover and not hammer it with infinite retry requests
+// Aggressive reconnects will keep your script stuck in a error loop and consume CPU
 const SLOTS_SUBSCRIPTION_DELAY = process.env.SLOTS_SUBSCRIPTION_DELAY ? parseInt(process.env.SLOTS_SUBSCRIPTION_DELAY) : 4000;
 
 export const watchSlotSent = async (gSlotSent: { value: bigint | null, updated_at: number }, rpcSubscription: RpcSubscriptions<SlotsUpdatesNotificationsApi>) => {
   while (true) {
     const abortController = new AbortController();
     try {
+
+      // Subscribing to the `slotsUpdatesSubscribe` and update slot number
+      // https://solana.com/docs/rpc/websocket/slotsupdatessubscribe
       const slotNotifications = await rpcSubscription
         .slotsUpdatesNotifications()
         .subscribe({ abortSignal: abortController.signal });
 
+      // handling subscription updates via `AsyncIterators`
+      // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/AsyncIterator
       for await (const notification of slotNotifications) {
         if (
           notification.type === "firstShredReceived" ||
@@ -30,6 +40,7 @@ export const watchSlotSent = async (gSlotSent: { value: bigint | null, updated_a
 
         ++attempts;
 
+        // If the RPC is not sending the updates we want, erorr out and crash
         if (attempts >= MAX_SLOT_FETCH_ATTEMPTS) {
           console.log(
             `ERROR: Max attempts for fetching slot type "firstShredReceived" or "completed" reached, exiting`

@@ -21,7 +21,6 @@ In the .env file, try `VERBOSE_LOG=true` to see log output the first time you ru
 ## Running the Ping Thing Script
 You can start the script & push it to the background with `node ping-thing-client.mjs >> ping-thing.log 2>&1 &`.
 
-Look for an example service file in this repo soon.
 
 ## RPC Notes
 If you are running the Ping Thing client on your validator node, you need to enable private RPC for access from your localhost. You also need to enable `--enable-rpc-transaction-history` to get the TX slot after confirmation.

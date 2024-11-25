@@ -1,21 +1,14 @@
 import {
-  createDefaultRpcTransport,
-  createTransactionMessage,
-  pipe,
-  setTransactionMessageFeePayer,
   setTransactionMessageLifetimeUsingBlockhash,
   createKeyPairFromBytes,
   getAddressFromPublicKey,
-  createSignerFromKeyPair,
   signTransaction,
-  appendTransactionMessageInstructions,
   sendTransactionWithoutConfirmingFactory,
   createSolanaRpcSubscriptions_UNSTABLE,
   getSignatureFromTransaction,
   compileTransaction,
   createSolanaRpc,
   SOLANA_ERROR__TRANSACTION_ERROR__BLOCKHASH_NOT_FOUND,
-  address,
   isSolanaError,
   type Signature,
   type Commitment,
@@ -25,8 +18,6 @@ import {
 } from "@solana/web3.js";
 import dotenv from "dotenv";
 import bs58 from "bs58";
-import { getSetComputeUnitLimitInstruction, getSetComputeUnitPriceInstruction } from "@solana-program/compute-budget";
-import { getTransferSolInstruction } from "@solana-program/system";
 import { createRecentSignatureConfirmationPromiseFactory } from "@solana/transaction-confirmation";
 import { sleep } from "./utils/misc.js";
 import { watchBlockhash } from "./utils/blockhash.js";
@@ -35,14 +26,7 @@ import { setMaxListeners } from "events";
 import axios from "axios";
 import { safeRace } from "@solana/promises";
 
-
 dotenv.config();
-
-const orignalConsoleLog = console.log;
-console.log = function (...message) {
-  const dateTime = new Date().toUTCString();
-  orignalConsoleLog(dateTime, ...message);
-};
 
 // Catch interrupts & exit
 process.on("SIGINT", function () {
@@ -58,7 +42,6 @@ const SLEEP_MS_LOOP = process.env.SLEEP_MS_LOOP ? parseInt(process.env.SLEEP_MS_
 const VA_API_KEY = process.env.VA_API_KEY;
 const VERBOSE_LOG = process.env.VERBOSE_LOG === "true" ? true : false;
 const COMMITMENT_LEVEL = process.env.COMMITMENT || "confirmed";
-const USE_PRIORITY_FEE = process.env.USE_PRIORITY_FEE == "true" ? true : false;
 
 const SKIP_VALIDATORS_APP = process.env.SKIP_VALIDATORS_APP || false;
 
@@ -69,24 +52,29 @@ const SWAP_AMOUNT = 1000;
 const JUPITER_ENDPOINT = `${RPC_ENDPOINT}/jupiter`;
 const PRIORITY_FEE_PERCENTILE = process.env.PRIORITY_FEE_PERCENTILE || 5000;
 
-
 if (VERBOSE_LOG) console.log(`Starting script`);
 
-const connection = createSolanaRpc(RPC_ENDPOINT!);
+// RPC connection for HTTP API calls, equivalent to `const c = new Connection(RPC_ENDPOINT)`
+const rpcConnection = createSolanaRpc(RPC_ENDPOINT!);
 
+// RPC connection for websocket connection
 const rpcSubscriptions = createSolanaRpcSubscriptions_UNSTABLE(WS_ENDPOINT!);
 
 let USER_KEYPAIR;
 const TX_RETRY_INTERVAL = 2000;
 
+// Global blockhash value fetching constantly in a loop
 const gBlockhash = { value: null, updated_at: 0, lastValidBlockHeight: BigInt(0) };
 
-// Record new slot on `firstShredReceived`
+// Record new slot on `firstShredReceived` fetched from a slot subscription
 const gSlotSent = { value: null, updated_at: 0 };
+
+// main ping thing function
 async function pingThing() {
   USER_KEYPAIR = await createKeyPairFromBytes(
     bs58.decode(process.env.WALLET_PRIVATE_KEYPAIR!)
   );
+
   // Pre-define loop constants & variables
   const FAKE_SIGNATURE =
     "9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999";
@@ -95,9 +83,7 @@ async function pingThing() {
   const MAX_TRIES = 3;
   let tryCount = 0;
 
-  const feePayer = await getAddressFromPublicKey(USER_KEYPAIR.publicKey);
-  const signer = await createSignerFromKeyPair(USER_KEYPAIR);
-
+  // Infinite loop to keep this running forever
   while (true) {
     await sleep(SLEEP_MS_LOOP);
 
@@ -114,7 +100,7 @@ async function pingThing() {
     let quoteResponse;
     let jupiterSwapTransaction;
 
-    // Wait fresh data
+    // Wait for fresh slot and blockhash
     while (true) {
       if (
         Date.now() - gBlockhash.updated_at < 10000 &&
@@ -131,11 +117,9 @@ async function pingThing() {
 
     try {
       try {
-
-
         if (VERBOSE_LOG)
           console.log(
-            `${new Date().toISOString()} fetching jupiter swap quote`
+            `fetching jupiter swap quote`
           );
 
         // Get quote for swap
@@ -143,7 +127,7 @@ async function pingThing() {
           `${JUPITER_ENDPOINT}/quote?inputMint=${SWAP_TOKEN_FROM}&outputMint=${SWAP_TOKEN_TO}&amount=${SWAP_AMOUNT}&slippageBps=50`
         );
 
-        // throw error if response is not ok
+        // Throw error if response is not ok
         if (!(tempResponse.status >= 200) && tempResponse.status < 300) {
           throw new Error(
             `Failed to fetch jupiter swap quote: ${tempResponse.status}`
@@ -153,12 +137,7 @@ async function pingThing() {
         quoteResponse = tempResponse.data;
 
         if (VERBOSE_LOG)
-          console.log(`${new Date().toISOString()} fetched jupiter swap quote`);
-
-        if (VERBOSE_LOG)
-          console.log(
-            `${new Date().toISOString()} fetching global priority fees for jupiter`
-          );
+          console.log(`fetched jupiter swap quote`);
 
         // get priority fees from teh improved priority fees api
         // https://docs.triton.one/chains/solana/improved-priority-fees-api
@@ -180,9 +159,7 @@ async function pingThing() {
         const medianFees = fees.sort()[Math.floor(fees.length / 2)]
 
         if (VERBOSE_LOG)
-          console.log(
-            `${new Date().toISOString()} fetching jupiter swap transaction`
-          );
+          console.log(`fetched global priority fees for jupiter`);
 
         const userPublicKey = await getAddressFromPublicKey(USER_KEYPAIR.publicKey);
 
@@ -197,27 +174,35 @@ async function pingThing() {
         // throw error if response is not ok
         if (!(tempResponse.status >= 200) && tempResponse.status < 300) {
           throw new Error(
-            `Failed to fetch jupiter swap transaction: ${tempResponse.status}`
+            `failed to fetch jupiter swap transaction: ${tempResponse.status}`
           );
         }
 
-        jupiterSwapTransaction = tempResponse.data;
+        if (VERBOSE_LOG)
+          console.log(
+            `fetched jupiter swap transaction`
+          );
 
+        jupiterSwapTransaction = tempResponse.data;
 
         const swapTransactionBuffer = Buffer.from(
           jupiterSwapTransaction.swapTransaction,
           "base64"
         );
 
+        // ---- Start: Decode and parse the transaction ----
         const transactionDecoder = getTransactionDecoder()
         const decodedTx = transactionDecoder.decode(swapTransactionBuffer)
 
         const compiledTransactionMessageDecoder = getCompiledTransactionMessageDecoder()
         const compiledTransactionMessage = compiledTransactionMessageDecoder.decode(decodedTx.messageBytes)
 
-        const txMessage = await decompileTransactionMessageFetchingLookupTables(compiledTransactionMessage, connection)
-        const finalTxWithBlockhash = setTransactionMessageLifetimeUsingBlockhash({ blockhash: gBlockhash.value!, lastValidBlockHeight: BigInt(gBlockhash.updated_at!) }, txMessage)
+        const txMessage = await decompileTransactionMessageFetchingLookupTables(compiledTransactionMessage, rpcConnection)
 
+        // Set blockhash
+        const finalTxWithBlockhash = setTransactionMessageLifetimeUsingBlockhash({ blockhash: blockhash!, lastValidBlockHeight: lastValidBlockHeight }, txMessage)
+
+        // Sign the tx
         const transactionSignedWithFeePayer = await signTransaction(
           [USER_KEYPAIR],
           compileTransaction(finalTxWithBlockhash)
@@ -225,31 +210,49 @@ async function pingThing() {
 
         signature = getSignatureFromTransaction(transactionSignedWithFeePayer);
 
+        // ---- End: Decode and parse the transaction ----
+
+        // Note the timestamp we begin sending the tx, we'll compare it with the
+        // timestamp when the tx is confirmed to mesaure the tx latency
         txStart = Date.now();
 
         console.log(`Sending ${signature}`);
 
+        // The tx sendinng and confirming startegy of the Ping Thing is as follow:
+        // 1. Send the tranaction
+        // 2. Subscribe to the tx signature and listen for dersied commitment change
+        // 3. Send the tx again if not confrmed within 2000ms
+        // 4. Stop sending when tx is confirmed
+
+        // Create a sender factory that sends a transaction and doesn't wait for confirmation
         const mSendTransaction = sendTransactionWithoutConfirmingFactory({
-          rpc: connection,
+          rpc: rpcConnection,
         });
 
+        // Create a promise factory that has the logic for a the tx to be confirmed
         const getRecentSignatureConfirmationPromise =
           createRecentSignatureConfirmationPromiseFactory({
-            rpc: connection,
+            rpc: rpcConnection,
             rpcSubscriptions,
           });
 
         setMaxListeners(100);
+
+        // Incase we want to abort the promise that's waiting for a tx to be confirmed
         const abortController = new AbortController();
 
         while (true) {
           try {
+            // Send the tx
             await mSendTransaction(transactionSignedWithFeePayer, {
               commitment: "confirmed",
               maxRetries: 0n,
               skipPreflight: true,
             });
 
+            // Wait for tx confirmation promise, if it doesn't resolve in 2000ms, trigger a resend of the tx. We're handling client side retris here
+
+            // safeRace is a memory safe version of `Promise.all` that doesn't leak memory
             await safeRace([
               getRecentSignatureConfirmationPromise({
                 signature,
@@ -276,7 +279,7 @@ async function pingThing() {
         if (
           isSolanaError(e, SOLANA_ERROR__TRANSACTION_ERROR__BLOCKHASH_NOT_FOUND)
         ) {
-          // if (e.message.includes("Blockhash not found")) {
+          // Same as `if (e.message.includes("Blockhash not found")) {`
           console.log(`ERROR: Blockhash not found`);
           continue;
         }
@@ -304,7 +307,7 @@ async function pingThing() {
       await sleep(SLEEP_MS_RPC);
       if (signature !== FAKE_SIGNATURE) {
         // Capture the slotLanded
-        let txLanded = await connection
+        let txLanded = await rpcConnection
           .getTransaction(signature, {
             commitment: COMMITMENT_LEVEL as Commitment,
             maxSupportedTransactionVersion: 0,
@@ -329,7 +332,7 @@ async function pingThing() {
         continue;
       }
 
-      // prepare the payload to send to validators.app
+      // Prepare the payload to send to validators.app
       const vAPayload = JSON.stringify({
         time: txEnd - txStart!,
         signature,
@@ -381,7 +384,7 @@ async function pingThing() {
 }
 
 Promise.all([
-  watchBlockhash(gBlockhash, connection),
+  watchBlockhash(gBlockhash, rpcConnection),
   watchSlotSent(gSlotSent, rpcSubscriptions),
   pingThing(),
 ]);

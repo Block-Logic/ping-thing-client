@@ -1,4 +1,6 @@
-import type { Blockhash, GetLatestBlockhashApi, Rpc, SolanaRpcApi, SolanaRpcResponse } from "@solana/web3.js";
+// This is a blockhash watcher. It constantly fetches new blockhash and updates a global variable
+
+import type { Blockhash, GetLatestBlockhashApi, Rpc, SolanaRpcApi } from "@solana/web3.js";
 import { sleep } from "./misc.js";
 import { safeRace } from "@solana/promises";
 
@@ -7,7 +9,7 @@ const MAX_BLOCKHASH_FETCH_ATTEMPTS = process.env.MAX_BLOCKHASH_FETCH_ATTEMPTS ?
 let attempts = 0;
 
 export const watchBlockhash = async (gBlockhash: { value: Blockhash | null, updated_at: number, lastValidBlockHeight: bigint }, connection: Rpc<SolanaRpcApi>) => {
-  // const gBlockhash = { value: null, updated_at: 0 };
+
   while (true) {
     try {
       // Use a 5 second timeout to avoid hanging the script

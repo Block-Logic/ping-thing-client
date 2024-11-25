@@ -1,5 +1,4 @@
 import {
-  createDefaultRpcTransport,
   createTransactionMessage,
   pipe,
   setTransactionMessageFeePayer,
@@ -15,7 +14,6 @@ import {
   compileTransaction,
   createSolanaRpc,
   SOLANA_ERROR__TRANSACTION_ERROR__BLOCKHASH_NOT_FOUND,
-  address,
   isSolanaError,
   type Signature,
   type Commitment,
@@ -31,7 +29,6 @@ import { watchSlotSent } from "./utils/slot.js";
 import { setMaxListeners } from "events";
 import axios from "axios";
 import { safeRace } from "@solana/promises";
-
 
 dotenv.config();
 
@@ -65,17 +62,22 @@ const SKIP_VALIDATORS_APP = process.env.SKIP_VALIDATORS_APP || false;
 
 if (VERBOSE_LOG) console.log(`Starting script`);
 
-const connection = createSolanaRpc(RPC_ENDPOINT!);
+// RPC connection for HTTP API calls, equivalent to `const c = new Connection(RPC_ENDPOINT)`
+const rpcConnection = createSolanaRpc(RPC_ENDPOINT!);
 
+// RPC connection for websocket connection
 const rpcSubscriptions = createSolanaRpcSubscriptions_UNSTABLE(WS_ENDPOINT!);
 
 let USER_KEYPAIR;
 const TX_RETRY_INTERVAL = 2000;
 
+// Global blockhash value fetching constantly in a loop
 const gBlockhash = { value: null, updated_at: 0, lastValidBlockHeight: BigInt(0) };
 
-// Record new slot on `firstShredReceived`
+// Record new slot on `firstShredReceived` fetched from a slot subscription
 const gSlotSent = { value: null, updated_at: 0 };
+
+// main ping thing function
 async function pingThing() {
   USER_KEYPAIR = await createKeyPairFromBytes(
     bs58.decode(process.env.WALLET_PRIVATE_KEYPAIR!)
@@ -91,6 +93,7 @@ async function pingThing() {
   const feePayer = await getAddressFromPublicKey(USER_KEYPAIR.publicKey);
   const signer = await createSignerFromKeyPair(USER_KEYPAIR);
 
+  // Infinite loop to keep this running forever
   while (true) {
     await sleep(SLEEP_MS_LOOP);
 
@@ -102,12 +105,7 @@ async function pingThing() {
     let txStart;
     let txSendAttempts = 1;
 
-    let tempResponse;
-
-    let quoteResponse;
-    let jupiterSwapTransaction;
-
-    // Wait fresh data
+    // Wait for fresh slot and blockhash
     while (true) {
       if (
         Date.now() - gBlockhash.updated_at < 10000 &&
@@ -124,7 +122,9 @@ async function pingThing() {
 
     try {
       try {
-        const authorityAddress = await getAddressFromPublicKey(USER_KEYPAIR.publicKey);
+
+        // Pipe multiple instructions in a tx
+        // Names are self-explainatory. See the imports of these functions
         const transaction = pipe(
           createTransactionMessage({ version: 0 }),
           (tx) => setTransactionMessageFeePayer(feePayer, tx),
@@ -143,6 +143,8 @@ async function pingThing() {
                   units: 500,
                 }),
                 getSetComputeUnitPriceInstruction({ microLamports: BigInt(PRIORITY_FEE_MICRO_LAMPORTS) }),
+
+                // SOL transfer instruction
                 getTransferSolInstruction({
                   source: signer,
                   destination: feePayer,
@@ -151,39 +153,58 @@ async function pingThing() {
               ],
               tx
             )
-
         );
+
+        // Sign the tx
         const transactionSignedWithFeePayer = await signTransaction(
           [USER_KEYPAIR],
           compileTransaction(transaction)
         );
+
+        // Get the tx signature
         signature = getSignatureFromTransaction(transactionSignedWithFeePayer);
 
+        // Note the timestamp we begin sending the tx, we'll compare it with the
+        // timestamp when the tx is confirmed to mesaure the tx latency
         txStart = Date.now();
 
         console.log(`Sending ${signature}`);
 
+        // The tx sendinng and confirming startegy of the Ping Thing is as follow:
+        // 1. Send the tranaction
+        // 2. Subscribe to the tx signature and listen for dersied commitment change
+        // 3. Send the tx again if not confrmed within 2000ms
+        // 4. Stop sending when tx is confirmed
+
+        // Create a sender factory that sends a transaction and doesn't wait for confirmation
         const mSendTransaction = sendTransactionWithoutConfirmingFactory({
-          rpc: connection,
+          rpc: rpcConnection,
         });
 
+        // Create a promise factory that has the logic for a the tx to be confirmed
         const getRecentSignatureConfirmationPromise =
           createRecentSignatureConfirmationPromiseFactory({
-            rpc: connection,
+            rpc: rpcConnection,
             rpcSubscriptions,
           });
 
         setMaxListeners(100);
+
+        // Incase we want to abort the promise that's waiting for a tx to be confirmed
         const abortController = new AbortController();
 
         while (true) {
           try {
+            // Send the tx
             await mSendTransaction(transactionSignedWithFeePayer, {
               commitment: "confirmed",
               maxRetries: 0n,
               skipPreflight: true,
             });
 
+            // Wait for tx confirmation promise, if it doesn't resolve in 2000ms, trigger a resend of the tx. We're handling client side retris here
+
+            // safeRace is a memory safe version of `Promise.all` that doesn't leak memory
             await safeRace([
               getRecentSignatureConfirmationPromise({
                 signature,
@@ -238,7 +259,7 @@ async function pingThing() {
       await sleep(SLEEP_MS_RPC);
       if (signature !== FAKE_SIGNATURE) {
         // Capture the slotLanded
-        let txLanded = await connection
+        let txLanded = await rpcConnection
           .getTransaction(signature, {
             commitment: COMMITMENT_LEVEL as Commitment,
             maxSupportedTransactionVersion: 0,
@@ -315,7 +336,7 @@ async function pingThing() {
 }
 
 Promise.all([
-  watchBlockhash(gBlockhash, connection),
+  watchBlockhash(gBlockhash, rpcConnection),
   watchSlotSent(gSlotSent, rpcSubscriptions),
   pingThing(),
 ]);
