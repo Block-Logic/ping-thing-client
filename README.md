@@ -1,4 +1,4 @@
-# ping-thing-client
+ # ping-thing-client
 Node JS Client to contribute ping times to the Validators.app Ping Thing.
 
 ## Install notes
