@@ -186,20 +186,20 @@ async function pingThing() {
           rpc: rpcConnection,
         });
 
-        // Create a promise factory that has the logic for a the tx to be confirmed
-        const getRecentSignatureConfirmationPromise =
-          createRecentSignatureConfirmationPromiseFactory({
-            rpc: rpcConnection,
-            rpcSubscriptions,
-          });
-
-        setMaxListeners(100);
-
         // Incase we want to abort the promise that's waiting for a tx to be confirmed
         const abortController = new AbortController();
 
         while (true) {
           try {
+            // Create a promise factory that has the logic for a the tx to be confirmed
+            const getRecentSignatureConfirmationPromise =
+              createRecentSignatureConfirmationPromiseFactory({
+                rpc: rpcConnection,
+                rpcSubscriptions,
+              });
+
+            setMaxListeners(100);
+
             // Send the tx
             await mSendTransaction(transactionSignedWithFeePayer, {
               commitment: "confirmed",
