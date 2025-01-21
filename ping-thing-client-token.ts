@@ -17,6 +17,8 @@ import {
   isSolanaError,
   type Signature,
   type Commitment,
+  sendAndConfirmTransactionFactory,
+  SOLANA_ERROR__BLOCK_HEIGHT_EXCEEDED,
 } from "@solana/web3.js";
 import dotenv from "dotenv";
 import bs58 from "bs58";
@@ -190,48 +192,33 @@ async function pingThing() {
         const abortController = new AbortController();
 
         while (true) {
+          const sendAndConfirmTransaction = sendAndConfirmTransactionFactory({ rpc: rpcConnection, rpcSubscriptions });
+
           try {
-            // Create a promise factory that has the logic for a the tx to be confirmed
-            const getRecentSignatureConfirmationPromise =
-              createRecentSignatureConfirmationPromiseFactory({
-                rpc: rpcConnection,
-                rpcSubscriptions,
-              });
-
-            setMaxListeners(100);
-
-            // Send the tx
-            await mSendTransaction(transactionSignedWithFeePayer, {
-              commitment: "confirmed",
-              maxRetries: 0n,
-              skipPreflight: true,
-            });
-
-
-            // Wait for tx confirmation promise, if it doesn't resolve in 2000ms, trigger a resend of the tx. We're handling client side retris here
-
-            // safeRace is a memory safe version of `Promise.all` that doesn't leak memory
             await safeRace([
-              getRecentSignatureConfirmationPromise({
-                signature,
-                commitment: "confirmed",
-                abortSignal: abortController.signal,
-              }),
+              sendAndConfirmTransaction(transactionSignedWithFeePayer, { maxRetries: 0n, skipPreflight: true, commitment: "confirmed", abortSignal: abortController.signal }),
               sleep(TX_RETRY_INTERVAL).then(() => {
-                throw new Error("Tx Send Timeout");
+                throw new Error("TxSendTimeout");
               }),
             ]);
 
             console.log(`Confirmed tx ${signature}`);
 
             break;
-          } catch (e) {
-            console.log(
-              `Tx not confirmed after ${TX_RETRY_INTERVAL * txSendAttempts++
-              }ms, resending`
-            );
+          } catch (e: any) {
+            if (e.message === "TxSendTimeout") {
+              console.log(`Tx not confirmed after ${TX_RETRY_INTERVAL * txSendAttempts++}ms, resending`)
+              continue;
+            } else if (isSolanaError(e, SOLANA_ERROR__BLOCK_HEIGHT_EXCEEDED)) {
+              throw new Error("TransactionExpiredBlockheightExceededError")
+            } else {
+              throw e;
+            }
+
           }
+
         }
+
       } catch (e: any) {
         // Log and loop if we get a bad blockhash.
         if (
