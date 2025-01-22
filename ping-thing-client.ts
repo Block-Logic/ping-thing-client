@@ -30,6 +30,7 @@ import { watchSlotSent } from "./utils/slot.js";
 import { setMaxListeners } from "events";
 import axios from "axios";
 import { safeRace } from "@solana/promises";
+import { confirmationLatency, initPrometheus, slotLatency } from "./utils/prometheus.js";
 
 dotenv.config();
 
@@ -59,7 +60,9 @@ const USE_PRIORITY_FEE = process.env.USE_PRIORITY_FEE == "true" ? true : false;
 const PRIORITY_FEE_MICRO_LAMPORTS = USE_PRIORITY_FEE ? process.env.PRIORITY_FEE_MICRO_LAMPORTS || 5000 : 0
 
 const SKIP_VALIDATORS_APP = process.env.SKIP_VALIDATORS_APP || false;
+const SKIP_PROMETHEUS = process.env.SKIP_PROMETHEUS || false;
 
+const PINGER_NAME = process.env.PINGER_NAME || "UNSET"
 
 if (VERBOSE_LOG) console.log(`Starting script`);
 
@@ -311,6 +314,22 @@ async function pingThing() {
         }
       }
 
+      if (!SKIP_PROMETHEUS) {
+        confirmationLatency.observe(
+          {
+            pinger_name: PINGER_NAME
+          },
+          txEnd - txStart!
+        );
+
+        slotLatency.observe(
+          {
+            pinger_name: PINGER_NAME
+          },
+          Number(slotLanded! - slotSent!)
+        );
+      }
+
       // Reset the try counter
       tryCount = 0;
     } catch (e) {
@@ -324,5 +343,6 @@ async function pingThing() {
 Promise.all([
   watchBlockhash(gBlockhash, rpcConnection),
   watchSlotSent(gSlotSent, rpcSubscriptions),
+  initPrometheus(),
   pingThing(),
 ]);
