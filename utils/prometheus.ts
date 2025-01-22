@@ -1,6 +1,9 @@
 import { Registry, Histogram } from 'prom-client';
 import express from 'express';
 import dotenv from "dotenv"
+dotenv.config()
+
+const METRICS_PORT = process.env.PROMETHEUS_PORT || 9090;
 
 // Initialize Prometheus registry
 const register = new Registry();
@@ -32,14 +35,13 @@ export const slotLatency = new Histogram({
 
 export async function initPrometheus() {
   const app = express();
-  const metricsPort = process.env.PROMETHEUS_PORT || 9090;
 
   app.get('/metrics', async (req, res) => {
     res.set('Content-Type', register.contentType);
     res.end(await register.metrics());
   });
 
-  app.listen(metricsPort, () => {
-    console.log(`Metrics server listening on port ${metricsPort}`);
+  app.listen(METRICS_PORT, () => {
+    console.log(`Metrics server listening on port ${METRICS_PORT}`);
   });
 }
