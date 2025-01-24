@@ -10,8 +10,12 @@ const register = new Registry();
 
 // Generate millisecond buckets from 0 to 10000
 const generateBuckets = () => {
-  const buckets = [0, 500];
-  for (let i = 600; i <= 2000; i += 100) buckets.push(i);
+  const buckets = [];
+  // Fine granularity for 0-1000ms range (50ms steps)
+  for (let i = 0; i <= 1000; i += 50) buckets.push(i);
+  // Medium granularity 1000-2000ms (100ms steps)
+  for (let i = 1100; i <= 2000; i += 100) buckets.push(i);
+  // Coarse granularity 2000-10000ms (200ms steps)
   for (let i = 2200; i <= 10000; i += 200) buckets.push(i);
   return buckets;
 };
