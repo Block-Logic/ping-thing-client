@@ -15,7 +15,7 @@
     "@solana-program/token": "^0.4.0",
     "@solana/promises": "^2.0.0",
     "@solana/transaction-confirmation": "^2.0.0",
-    "@solana/web3.js": "2.0.0",
+    "@solana/kit": "2.1.0",
     "axios": "^1.7.3",
     "bs58": "^6.0.0",
     "dotenv": "^16.4.5",

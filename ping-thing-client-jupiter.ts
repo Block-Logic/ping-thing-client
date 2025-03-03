@@ -17,7 +17,7 @@ import {
   decompileTransactionMessageFetchingLookupTables,
   sendAndConfirmTransactionFactory,
   SOLANA_ERROR__BLOCK_HEIGHT_EXCEEDED,
-} from "@solana/web3.js";
+} from "@solana/kit";
 import dotenv from "dotenv";
 import bs58 from "bs58";
 import { createRecentSignatureConfirmationPromiseFactory } from "@solana/transaction-confirmation";

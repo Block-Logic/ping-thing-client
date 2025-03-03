@@ -19,7 +19,7 @@ import {
   type Commitment,
   sendAndConfirmTransactionFactory,
   SOLANA_ERROR__BLOCK_HEIGHT_EXCEEDED,
-} from "@solana/web3.js";
+} from "@solana/kit";
 import dotenv from "dotenv";
 import bs58 from "bs58";
 import { getSetComputeUnitLimitInstruction, getSetComputeUnitPriceInstruction } from "@solana-program/compute-budget";
