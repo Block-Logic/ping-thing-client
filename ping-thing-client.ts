@@ -19,6 +19,8 @@ import {
   type Commitment,
   sendAndConfirmTransactionFactory,
   SOLANA_ERROR__BLOCK_HEIGHT_EXCEEDED,
+  createRpc,
+  createDefaultRpcTransport,
 } from "@solana/kit";
 import dotenv from "dotenv";
 import bs58 from "bs58";
@@ -38,6 +40,7 @@ import {
   initPrometheus,
   slotLatency,
 } from "./utils/prometheus.js";
+import { customizedRpcApi } from "./utils/grpfCustomRpcApi.js";
 
 dotenv.config();
 
@@ -85,7 +88,11 @@ const PINGER_NAME = process.env.PINGER_NAME || "UNSET";
 if (VERBOSE_LOG) console.log(`Starting script`);
 
 // RPC connection for HTTP API calls, equivalent to `const c = new Connection(RPC_ENDPOINT)`
-const rpcConnection = createSolanaRpc(RPC_ENDPOINT!);
+// const rpcConnection = createSolanaRpc(RPC_ENDPOINT!);
+const rpcConnection = createRpc({
+  api: customizedRpcApi,
+  transport: createDefaultRpcTransport({ url: RPC_ENDPOINT! }),
+});
 
 // RPC connection for websocket connection
 const rpcSubscriptions = createSolanaRpcSubscriptions_UNSTABLE(WS_ENDPOINT!);
@@ -150,47 +157,26 @@ async function pingThing() {
     try {
       try {
         if (USE_PRIORITY_FEE) {
-          const grpfResponse = await fetch(RPC_ENDPOINT!, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              method: "getRecentPrioritizationFees",
-              jsonrpc: "2.0",
-              params: [
-                [],
-                {
-                  percentile: PRIORITY_FEE_PERCENTILE,
-                },
-              ],
-              id: "1",
-            }),
-          });
+          const feeResults = await rpcConnection
+            .getRecentPrioritizationFeesTriton([], {
+              percentile: PRIORITY_FEE_PERCENTILE,
+            })
+            .send();
 
-          if (grpfResponse.status == 200) {
-            const responseBody = await grpfResponse.json();
-            if (responseBody.result && responseBody.result.length > 0) {
-              const feeResults = responseBody.result;
-              const fees: number[] = [];
-              for (let i = 0; i < feeResults.length; i++) {
-                fees.push(feeResults[i].prioritizationFee);
-              }
-
-              const sortedFeesArray = fees.sort();
-
-              priorityFeeMicroLamports =
-                sortedFeesArray[sortedFeesArray.length - 1];
+          if (feeResults && feeResults.length > 0) {
+            const fees: number[] = [];
+            for (let i = 0; i < feeResults.length; i++) {
+              fees.push(feeResults[i].prioritizationFee);
             }
-          } else {
-            console.log("gRPF call error");
-            console.log(await grpfResponse.json());
+
+            const sortedFeesArray = fees.sort();
+
+            priorityFeeMicroLamports =
+              sortedFeesArray[sortedFeesArray.length - 1];
           }
         }
 
         console.log(`Fees ${priorityFeeMicroLamports}`);
-
-        const source = await getAddressFromPublicKey(signer.keyPair.publicKey);
 
         // Pipe multiple instructions in a tx
         // Names are self-explainatory. See the imports of these functions
@@ -217,7 +203,9 @@ async function pingThing() {
 
                 // SOL transfer instruction
                 getTransferSolInstruction({
+                  // @ts-ignore
                   source: signer,
+                  // @ts-ignore
                   destination: feePayer,
                   amount: 5000,
                 }),
@@ -361,7 +349,7 @@ async function pingThing() {
         slot_sent: BigInt(slotSent!).toString(),
         slot_landed: BigInt(slotLanded!).toString(),
         priority_fee_percentile: Math.floor(PRIORITY_FEE_PERCENTILE / 100),
-        priority_fee_micro_lamports: priorityFeeMicroLamports,
+        priority_fee_micro_lamports: `${priorityFeeMicroLamports}`,
         pinger_region: PINGER_REGION,
       });
       if (VERBOSE_LOG) {
