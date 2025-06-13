@@ -1,6 +1,6 @@
 // This is a blockhash watcher. It constantly fetches new blockhash and updates a global variable
 
-import type { Blockhash, GetLatestBlockhashApi, Rpc, SolanaRpcApi } from "@solana/web3.js";
+import type { Blockhash, GetLatestBlockhashApi, Rpc, SolanaRpcApi } from "@solana/kit";
 import { sleep } from "./misc.js";
 import { safeRace } from "@solana/promises";
 
