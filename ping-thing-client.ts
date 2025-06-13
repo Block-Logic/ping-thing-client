@@ -33,6 +33,7 @@ import { sleep } from "./utils/misc.js";
 import { watchBlockhash } from "./utils/blockhash.js";
 import { watchSlotSent } from "./utils/slot.js";
 import { watchPriorityFees, type PriorityFees } from "./utils/priorityFees.js";
+import { watchBalance } from "./utils/balance.js";
 import { setMaxListeners } from "events";
 import axios from "axios";
 import { safeRace } from "@solana/promises";
@@ -119,6 +120,13 @@ const gPriorityFees: PriorityFees = {
   updated_at: 0,
 };
 
+// Global balance state
+const gBalanceState = {
+  isLow: false,
+  currentBalance: 0,
+  updated_at: 0,
+};
+
 // main ping thing function
 async function pingThing() {
   USER_KEYPAIR = await createKeyPairFromBytes(
@@ -142,6 +150,16 @@ async function pingThing() {
     let signature;
     let txSendAttempts = 1;
     let priorityFeeMicroLamports = 0;
+
+    // Check if balance is low
+    if (gBalanceState.isLow) {
+      console.log(
+        `${new Date().toISOString()} ERROR: Account balance (${
+          gBalanceState.currentBalance
+        } SOL) is below minimum threshold. Exiting...`
+      );
+      process.exit(1);
+    }
 
     // Wait for fresh slot, blockhash and priority fees
     while (true) {
@@ -295,12 +313,15 @@ async function pingThing() {
   }
 }
 
-Promise.all([
-  // @ts-ignore
-  watchBlockhash(gBlockhash, rpcConnection),
-  watchSlotSent(gSlotSent, rpcSubscriptions),
-  // @ts-ignore
-  watchPriorityFees(gPriorityFees, rpcConnection),
-  initPrometheus(),
-  pingThing(),
-]);
+  Promise.all([
+    // @ts-ignore
+    watchBlockhash(gBlockhash, rpcConnection),
+    watchSlotSent(gSlotSent, rpcSubscriptions),
+    // @ts-ignore
+    watchPriorityFees(gPriorityFees, rpcConnection),
+    // @ts-ignore
+    watchBalance(rpcConnection, gBalanceState),
+    initPrometheus(),
+    pingThing(),
+  ]);
+
