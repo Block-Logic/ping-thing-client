@@ -19,6 +19,8 @@
     "@solana/transaction-confirmation": "^2.0.0",
     "axios": "^1.7.3",
     "bs58": "^6.0.0",
+    "csv-parse": "^5.6.0",
+    "csv-writer": "^1.6.0",
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
     "js-yaml": "^4.1.0",

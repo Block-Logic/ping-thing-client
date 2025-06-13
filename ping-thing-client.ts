@@ -132,6 +132,8 @@ async function pingThing() {
   USER_KEYPAIR = await createKeyPairFromBytes(
     bs58.decode(process.env.WALLET_PRIVATE_KEYPAIR!)
   );
+
+  let sequenceNumberGlobal = 1;
   // Pre-define loop constants & variables
   const FAKE_SIGNATURE =
     "9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999";
@@ -185,7 +187,7 @@ async function pingThing() {
         console.log(`Fees ${priorityFeeMicroLamports}`);
 
         const slotSent = gSlotSent.value;
-        const sequenceNumber = Date.now();
+        const sequenceNumber = sequenceNumberGlobal++;
 
         // Pipe multiple instructions in a tx
         // Names are self-explainatory. See the imports of these functions

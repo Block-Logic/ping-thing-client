@@ -31,12 +31,14 @@ async function analyzeSlotLatency() {
     transport: createDefaultRpcTransport({ url: RPC_ENDPOINT }),
   });
 
-  // Get all CSV files from results directory
+  // Get all CSV files from results directory that match unixtimestamp.csv pattern
   const files = fs
     .readdirSync(RESULTS_DIR)
     .filter(
       (file) =>
-        file.endsWith(".csv") && !file.startsWith("analyzedSlotLatency_")
+        file.endsWith(".csv") &&
+        !file.startsWith("analyzedSlotLatency_") &&
+        /^\d+\.csv$/.test(file)
     );
 
   for (const file of files) {
