@@ -29,7 +29,7 @@ async function analyzeSequence() {
     const outputPath = path.join(RESULTS_DIR, `sequence_analysis_${file}`);
     fs.writeFileSync(
       outputPath,
-      "slot_sent,slot_landed,slot_latency,sequence_number,signature\n"
+      "slot_sent,slot_landed,slot_latency,sequence_number,signature,transaction_index\n"
     );
 
     // Read and parse CSV
@@ -71,7 +71,8 @@ async function analyzeSequence() {
         }
 
         // Process transactions sequentially
-        for (const tx of block.transactions) {
+        for (let txIndex = 0; txIndex < block.transactions.length; txIndex++) {
+          const tx = block.transactions[txIndex];
           if (!tx.meta) continue;
 
           const accountKeys = tx.transaction.message.accountKeys;
@@ -89,7 +90,7 @@ async function analyzeSequence() {
                 const slotLatency = slotLanded - BigInt(slotSent);
 
                 // Append directly to CSV
-                const csvLine = `${slotSent},${slotLanded},${slotLatency},${sequenceNumber},${tx.transaction.signatures[0]}\n`;
+                const csvLine = `${slotSent},${slotLanded},${slotLatency},${sequenceNumber},${tx.transaction.signatures[0]},${txIndex}\n`;
                 fs.appendFileSync(outputPath, csvLine);
 
                 console.log(`Found transaction in slot ${slot}:`);
@@ -98,6 +99,7 @@ async function analyzeSequence() {
                 console.log(`Slot Latency: ${slotLatency}`);
                 console.log(`Sequence Number: ${sequenceNumber}`);
                 console.log(`Signature: ${tx.transaction.signatures[0]}`);
+                console.log(`Transaction Index: ${txIndex}`);
               }
             }
           }
