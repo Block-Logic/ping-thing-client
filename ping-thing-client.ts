@@ -80,8 +80,8 @@ const PRIORITY_FEE_PERCENTILE = parseInt(
 
 const PINGER_REGION = process.env.PINGER_REGION!;
 
-const SKIP_VALIDATORS_APP = process.env.SKIP_VALIDATORS_APP || false;
-const SKIP_PROMETHEUS = process.env.SKIP_PROMETHEUS || false;
+const SKIP_VALIDATORS_APP = process.env.SKIP_VALIDATORS_APP === "true" ? true : false;
+const SKIP_PROMETHEUS = process.env.SKIP_PROMETHEUS  === "true" ? true : false;
 
 const PINGER_NAME = process.env.PINGER_NAME || "UNSET";
 
@@ -380,6 +380,9 @@ async function pingThing() {
             )}`
           );
         }
+      }
+      else {
+        console.log(`SKIP_VALIDATORS_APP set to ${SKIP_VALIDATORS_APP}, not sending to VA`);
       }
 
       if (!SKIP_PROMETHEUS) {
