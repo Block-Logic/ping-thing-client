@@ -23,6 +23,7 @@ import {
   createDefaultRpcTransport,
   type Transaction,
   getTransactionEncoder,
+  address,
 } from "@solana/kit";
 import dotenv from "dotenv";
 import bs58 from "bs58";
@@ -91,6 +92,18 @@ const SKIP_VALIDATORS_APP =
 const SKIP_PROMETHEUS = process.env.SKIP_PROMETHEUS === "true" ? true : false;
 
 const PINGER_NAME = process.env.PINGER_NAME || "UNSET";
+
+const LAMPORTS_PER_SOL = 1000000000; // 1 billion
+
+const USE_TIPS = process.env.USE_TIPS === "true" ? true : false;
+const TIP_AMOUNT =
+  process.env.TIP_AMOUNT && parseFloat(process.env.TIP_AMOUNT) > 0
+    ? parseFloat(process.env.TIP_AMOUNT)
+    : -1;
+const TIP_ADDRESSES =
+  process.env.TIP_ADDRESSES && process.env.TIP_ADDRESSES.length > 0
+    ? JSON.parse(process.env.TIP_ADDRESSES)
+    : [];
 
 if (VERBOSE_LOG) console.log(`Starting script`);
 
@@ -202,7 +215,7 @@ async function pingThing() {
             appendTransactionMessageInstructions(
               [
                 getSetComputeUnitLimitInstruction({
-                  units: 500,
+                  units: 1000*TIP_ADDRESSES.length,
                 }),
                 getSetComputeUnitPriceInstruction({
                   microLamports: BigInt(priorityFeeMicroLamports),
@@ -218,7 +231,34 @@ async function pingThing() {
                 }),
               ],
               tx
-            )
+            ),
+          (tx) => {
+            if (USE_TIPS) {
+              if (TIP_ADDRESSES.length > 0 && TIP_AMOUNT > 0) {
+                for (let i = 0; i < TIP_ADDRESSES.length; i++) {
+                  const addr = `${TIP_ADDRESSES[i]}`;
+
+                  const tipAddress = address(addr);
+                  tx = appendTransactionMessageInstructions(
+                    [
+                      // SOL transfer instruction
+                      getTransferSolInstruction({
+                        // @ts-ignore
+                        source: signer,
+                        destination: tipAddress,
+                        amount: LAMPORTS_PER_SOL * TIP_AMOUNT,
+                      }),
+                    ],
+                    tx
+                  );
+                }
+              } else {
+                console.log(`Invalid TIP_AMOUNT set or TIP_ADDRESSES is empty`);
+              }
+            }
+
+            return tx;
+          }
         );
 
         // Sign the tx
@@ -266,6 +306,9 @@ async function pingThing() {
           transactionSignedWithFeePayer
         );
         const txString = bs58.encode(wireTransactionBytes as Uint8Array);
+
+console.log(txString);
+
 
         while (true) {
           try {
@@ -456,6 +499,7 @@ async function sendTransactionToCustomEndpoint(transactionString: String) {
           maxRetries: 0,
           skipPreflight: true,
           commitment: "confirmed",
+          encoding: "base58",
         },
       ],
     }),
