@@ -1,10 +1,16 @@
-use solana_client::nonblocking::pubsub_client::PubsubClient;
-use solana_client::rpc_config::RpcSlotUpdateConfig;
-use std::sync::{Arc, Mutex};
-use tokio::time::Duration;
-use log::{error, info};
-use anyhow::Result;
+use anyhow::{Context, Result};
+use futures::StreamExt;
+use log::{error, info, warn};
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use yellowstone_grpc_client::GeyserGrpcClient;
+use yellowstone_grpc_proto::geyser::SlotStatus;
+use yellowstone_grpc_proto::prelude::{
+    subscribe_update::UpdateOneof, CommitmentLevel, SubscribeRequest, SubscribeRequestFilterSlots,
+};
 
+#[derive(Debug)]
 pub struct GlobalSlotSent {
     pub value: Option<u64>,
     pub updated_at: i64,
@@ -19,55 +25,93 @@ impl GlobalSlotSent {
     }
 }
 
-pub async fn watch_slot_sent(
+/// Watches slot updates via gRPC subscription
+pub async fn watch_slot(
+    grpc_client: Arc<Mutex<GeyserGrpcClient<impl yellowstone_grpc_client::Interceptor + 'static>>>,
     g_slot_sent: Arc<Mutex<GlobalSlotSent>>,
-    ws_url: &str,
+    _commitment: CommitmentLevel,
 ) -> Result<()> {
-    let max_attempts = std::env::var("MAX_SLOT_FETCH_ATTEMPTS")
-        .unwrap_or_else(|_| "100".to_string())
-        .parse::<u32>()
-        .unwrap_or(100);
-    let subscription_delay = std::env::var("SLOTS_SUBSCRIPTION_DELAY")
-        .unwrap_or_else(|_| "4000".to_string())
-        .parse::<u64>()
-        .unwrap_or(4000);
-    let mut attempts = 0;
+    info!("[Slot Watcher] Starting slot subscription task");
 
-    loop {
-        match PubsubClient::new(ws_url).await {
-            Ok(pubsub_client) => {
-                let (mut slot_notifications, _unsubscribe) = pubsub_client
-                    .slot_updates_subscribe()
-                    .await?;
+    // Create subscription request for slots
+    let mut slots_filter = HashMap::new();
+    slots_filter.insert(
+        "slots".to_string(),
+        SubscribeRequestFilterSlots {
+            filter_by_commitment: Some(false),
+            interslot_updates: Some(true),
+        },
+    );
 
-                while let Some(slot_info) = slot_notifications.next().await {
-                    if slot_info.type_field == "firstShredReceived" || slot_info.type_field == "completed" {
-                        let mut g = g_slot_sent.lock().unwrap();
-                        g.value = Some(slot_info.slot);
-                        g.updated_at = chrono::Utc::now().timestamp();
-                        attempts = 0;
-                    } else {
-                        attempts += 1;
-                    }
+    let subscribe_request = SubscribeRequest {
+        slots: slots_filter,
+        ..Default::default()
+    };
 
-                    if attempts >= max_attempts {
-                        error!("Max attempts for fetching slot type 'firstShredReceived' or 'completed' reached, exiting");
-                        std::process::exit(1);
-                    }
+    info!("[Slot Watcher] Subscribing to gRPC slot stream...");
+    let (_subscribe_tx, mut stream) = {
+        let mut client = grpc_client.lock().await;
+        client
+            .subscribe_with_request(Some(subscribe_request))
+            .await
+            .context("Failed to create slot subscription")?
+    };
 
-                    // Check if we need to resubscribe
-                    {
-                        let g = g_slot_sent.lock().unwrap();
-                        if g.value.is_some() && chrono::Utc::now().timestamp() - g.updated_at >= 3 {
-                            break;
+    // let (mut subscribe_tx, mut stream) = grpc_client.subscribe_with_request(Some(subscribe_request)).await?;
+
+    info!("[Slot Watcher] Successfully subscribed to slot stream");
+
+    let mut message_count = 0u64;
+
+    while let Some(message) = stream.next().await {
+        message_count += 1;
+
+        match message {
+            Ok(msg) => {
+                match msg.update_oneof {
+                    Some(UpdateOneof::Slot(slot_update)) => {
+                        // Only update slot on FIRST_SHRED_RECEIVED status
+                        if let Ok(status) = SlotStatus::try_from(slot_update.status) {
+                            // info!("SLOT STATUS");
+                            // info!("{:?}", status);
+                            if status == SlotStatus::SlotFirstShredReceived {
+                                let slot = slot_update.slot;
+
+                                let mut g = g_slot_sent.lock().await;
+                                let previous_slot = g.value;
+                                g.value = Some(slot);
+                                g.updated_at = chrono::Utc::now().timestamp();
+                                drop(g);
+
+                                if previous_slot != Some(slot) {
+                                    // info!(
+                                    //     "[Slot Watcher] Updated slot: {} (previous: {:?})",
+                                    //     slot, previous_slot
+                                    // );
+                                }
+                            }
                         }
+                    }
+                    _ => {
+                        // Ignore other update types
                     }
                 }
             }
             Err(e) => {
-                error!("Failed to connect to WebSocket: {}", e);
-                tokio::time::sleep(Duration::from_millis(subscription_delay)).await;
+                error!(
+                    "[Slot Watcher] Error in stream (message #{}): {:?}",
+                    message_count, e
+                );
+                // Stream error - will need to reconnect
+                break;
             }
         }
     }
+
+    warn!(
+        "[Slot Watcher] Stream ended after processing {} messages",
+        message_count
+    );
+
+    Ok(())
 }

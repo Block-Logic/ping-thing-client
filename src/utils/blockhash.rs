@@ -1,10 +1,18 @@
-use std::sync::{Arc, Mutex};
-use solana_client::nonblocking::rpc_client::RpcClient;
+use anyhow::{Context, Result};
+use futures::StreamExt;
+use log::{error, info, warn};
 use solana_sdk::hash::Hash;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use tokio::time::{sleep, Duration};
-use log::{error, info};
-use anyhow::Result;
+use yellowstone_grpc_client::GeyserGrpcClient;
+use yellowstone_grpc_proto::prelude::{
+    subscribe_update::UpdateOneof, CommitmentLevel, SubscribeRequest,
+    SubscribeRequestFilterBlocksMeta,
+};
 
+#[derive(Debug)]
 pub struct GlobalBlockhash {
     pub value: Option<Hash>,
     pub updated_at: i64,
@@ -21,43 +29,109 @@ impl GlobalBlockhash {
     }
 }
 
+/// Watches blockhash updates via gRPC block_meta subscription
 pub async fn watch_blockhash(
+    grpc_client: Arc<Mutex<GeyserGrpcClient<impl yellowstone_grpc_client::Interceptor + 'static>>>,
     g_blockhash: Arc<Mutex<GlobalBlockhash>>,
-    rpc_client: Arc<RpcClient>,
+    commitment: CommitmentLevel,
 ) -> Result<()> {
-    let max_attempts = std::env::var("MAX_BLOCKHASH_FETCH_ATTEMPTS")
-        .unwrap_or_else(|_| "5".to_string())
-        .parse::<u32>()
-        .unwrap_or(5);
-    let mut attempts = 0;
+    info!("[Blockhash Watcher] Starting blockhash subscription task");
 
     loop {
-        match tokio::time::timeout(
-            Duration::from_secs(5),
-            rpc_client.get_latest_blockhash(),
-        ).await {
-            Ok(Ok(blockhash_response)) => {
-                let mut g = g_blockhash.lock().unwrap();
-                g.value = Some(blockhash_response.0);
-                g.last_valid_block_height = blockhash_response.1;
-                g.updated_at = chrono::Utc::now().timestamp();
-                attempts = 0;
-            }
-            Ok(Err(e)) => {
-                error!("Failed to fetch blockhash: {}", e);
-                attempts += 1;
-            }
-            Err(e) => {
-                error!("Blockhash fetch timeout: {}", e);
-                attempts += 1;
+        // Create subscription request for block_meta
+        let mut blocks_filter = HashMap::new();
+        blocks_filter.insert(
+            "block_meta".to_string(),
+            SubscribeRequestFilterBlocksMeta {},
+        );
+
+        let subscribe_request = SubscribeRequest {
+            blocks_meta: blocks_filter,
+            commitment: Some(commitment.into()),
+            ..Default::default()
+        };
+
+        info!("[Blockhash Watcher] Subscribing to gRPC block_meta stream...");
+        let (_subscribe_tx, mut stream) = {
+            let mut client = grpc_client.lock().await;
+            client
+                .subscribe_with_request(Some(subscribe_request))
+                .await
+                .context("Failed to create block_meta subscription")?
+        };
+
+        info!("[Blockhash Watcher] Successfully subscribed to block_meta stream");
+
+        // Process stream updates
+        while let Some(message) = stream.next().await {
+            match message {
+                Ok(msg) => {
+                    if let Some(update) = msg.update_oneof {
+                        match update {
+                            UpdateOneof::BlockMeta(block_meta_update) => {
+                                let blockhash_str = block_meta_update.blockhash;
+                                let block_height = block_meta_update.block_height
+                                    .map(|bh| bh.block_height)
+                                    .unwrap_or(0);
+
+                                // Parse blockhash from base58 string
+                                let hash_bytes = match bs58::decode(&blockhash_str).into_vec() {
+                                    Ok(decoded) => {
+                                        if decoded.len() == 32 {
+                                            match <[u8; 32]>::try_from(decoded.as_slice()) {
+                                                Ok(arr) => arr,
+                                                Err(_) => {
+                                                    error!("[Blockhash Watcher] Failed to convert decoded blockhash to array");
+                                                    continue;
+                                                }
+                                            }
+                                        } else {
+                                            error!(
+                                                "[Blockhash Watcher] Decoded blockhash has wrong length: {} (expected 32)",
+                                                decoded.len()
+                                            );
+                                            continue;
+                                        }
+                                    }
+                                    Err(e) => {
+                                        error!("[Blockhash Watcher] Failed to decode blockhash: {}", e);
+                                        continue;
+                                    }
+                                };
+
+                                let new_hash = Hash::new_from_array(hash_bytes);
+
+                                // Update global blockhash if different
+                                let mut g = g_blockhash.lock().await;
+                                let previous_hash = g.value;
+
+                                if previous_hash != Some(new_hash) {
+                                    g.value = Some(new_hash);
+                                    g.last_valid_block_height = block_height;
+                                    g.updated_at = chrono::Utc::now().timestamp();
+                                    drop(g);
+
+                                    // info!(
+                                    //     "[Blockhash Watcher] Updated blockhash: {} at height {} (previous: {:?})",
+                                    //     new_hash, block_height, previous_hash
+                                    // );
+                                }
+                            }
+                            _ => {
+                                // Ignore other update types
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("[Blockhash Watcher] Stream error: {}", e);
+                    break;
+                }
             }
         }
 
-        if attempts >= max_attempts {
-            error!("Max attempts for fetching blockhash reached, exiting");
-            std::process::exit(1);
-        }
-
+        // Stream ended, reconnect with exponential backoff
+        warn!("[Blockhash Watcher] Stream disconnected, reconnecting in 5 seconds...");
         sleep(Duration::from_secs(5)).await;
     }
 }
