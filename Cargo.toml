@@ -1,5 +1,5 @@
 [package]
-name = "ping-thing-rust"
+name = "ping-thing-client-rust"
 version = "0.1.0"
 edition = "2021"
 
