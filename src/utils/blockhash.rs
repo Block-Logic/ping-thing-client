@@ -70,7 +70,8 @@ pub async fn watch_blockhash(
                         match update {
                             UpdateOneof::BlockMeta(block_meta_update) => {
                                 let blockhash_str = block_meta_update.blockhash;
-                                let block_height = block_meta_update.block_height
+                                let block_height = block_meta_update
+                                    .block_height
                                     .map(|bh| bh.block_height)
                                     .unwrap_or(0);
 
@@ -94,7 +95,10 @@ pub async fn watch_blockhash(
                                         }
                                     }
                                     Err(e) => {
-                                        error!("[Blockhash Watcher] Failed to decode blockhash: {}", e);
+                                        error!(
+                                            "[Blockhash Watcher] Failed to decode blockhash: {}",
+                                            e
+                                        );
                                         continue;
                                     }
                                 };

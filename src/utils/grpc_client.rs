@@ -1,12 +1,8 @@
 use anyhow::{Context, Result};
 use log::{debug, info, warn};
-use std::collections::HashMap;
 use tonic::transport::ClientTlsConfig;
 use yellowstone_grpc_client::{GeyserGrpcClient, Interceptor};
-use yellowstone_grpc_proto::prelude::{
-    CommitmentLevel, SubscribeRequest, SubscribeRequestFilterBlocks, SubscribeRequestFilterSlots,
-    SubscribeRequestFilterTransactions,
-};
+use yellowstone_grpc_proto::prelude::CommitmentLevel;
 
 /// Creates a gRPC client with proper configuration
 /// Based on the Yellowstone gRPC example pattern
