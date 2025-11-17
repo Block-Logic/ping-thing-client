@@ -80,7 +80,7 @@ pub async fn start_grpc_subscriptions(
                                 let confirmed = transaction
                                     .meta
                                     .as_ref()
-                                    .map_or(false, |meta| meta.err.is_none());
+                                    .is_some_and(|meta| meta.err.is_none());
 
                                 // Send simple confirmation tuple: (signature, slot_landed, confirmed)
                                 if let Err(_e) = confirmation_tx_clone
