@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use futures::StreamExt;
-use log::{error, info, warn};
+use log::{error, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -31,8 +31,6 @@ pub async fn watch_slot(
     g_slot_sent: Arc<Mutex<GlobalSlotSent>>,
     _commitment: CommitmentLevel,
 ) -> Result<()> {
-    info!("[Slot Watcher] Starting slot subscription task");
-
     // Create subscription request for slots
     let mut slots_filter = HashMap::new();
     slots_filter.insert(
@@ -48,7 +46,6 @@ pub async fn watch_slot(
         ..Default::default()
     };
 
-    info!("[Slot Watcher] Subscribing to gRPC slot stream...");
     let (_subscribe_tx, mut stream) = {
         let mut client = grpc_client.lock().await;
         client
@@ -56,10 +53,6 @@ pub async fn watch_slot(
             .await
             .context("Failed to create slot subscription")?
     };
-
-    // let (mut subscribe_tx, mut stream) = grpc_client.subscribe_with_request(Some(subscribe_request)).await?;
-
-    info!("[Slot Watcher] Successfully subscribed to slot stream");
 
     let mut message_count = 0u64;
 
@@ -72,23 +65,21 @@ pub async fn watch_slot(
                     Some(UpdateOneof::Slot(slot_update)) => {
                         // Only update slot on FIRST_SHRED_RECEIVED status
                         if let Ok(status) = SlotStatus::try_from(slot_update.status) {
-                            // info!("SLOT STATUS");
-                            // info!("{:?}", status);
                             if status == SlotStatus::SlotFirstShredReceived {
                                 let slot = slot_update.slot;
 
                                 let mut g = g_slot_sent.lock().await;
-                                let previous_slot = g.value;
+                                let _previous_slot = g.value;
                                 g.value = Some(slot);
                                 g.updated_at = chrono::Utc::now().timestamp();
                                 drop(g);
 
-                                if previous_slot != Some(slot) {
-                                    // info!(
-                                    //     "[Slot Watcher] Updated slot: {} (previous: {:?})",
-                                    //     slot, previous_slot
-                                    // );
-                                }
+                                // if previous_slot != Some(slot) {
+                                //     // info!(
+                                //     //     "[Slot Watcher] Updated slot: {} (previous: {:?})",
+                                //     //     slot, previous_slot
+                                //     // );
+                                // }
                             }
                         }
                     }

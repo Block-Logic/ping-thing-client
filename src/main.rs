@@ -22,7 +22,7 @@ use utils::{
     metrics::Metrics,
     misc::sleep_ms,
     slot::{watch_slot, GlobalSlotSent},
-    subscription_manager::{add_transaction_subscription, start_grpc_subscriptions},
+    subscription_manager::watch_transactions,
 };
 
 #[tokio::main]
@@ -104,27 +104,20 @@ async fn main() -> Result<()> {
 
     let pinger_name = std::env::var("PINGER_NAME").unwrap_or_else(|_| "UNSET".to_string());
     info!("PINGER_NAME: {}", pinger_name);
-    info!("Configuration loaded successfully");
 
-    info!("Initializing RPC client...");
     let rpc_client = Arc::new(RpcClient::new(rpc_endpoint.clone()));
-    info!("RPC client initialized for endpoint: {}", rpc_endpoint);
 
-    info!("Initializing shared state structures...");
     let g_blockhash = Arc::new(Mutex::new(GlobalBlockhash::new()));
     let g_slot_sent = Arc::new(Mutex::new(GlobalSlotSent::new()));
     // HashMap: key = signature, value = (slot_sent, send_time)
     let sent_transactions: Arc<RwLock<HashMap<String, (u64, Instant)>>> =
         Arc::new(RwLock::new(HashMap::new()));
-    info!("Shared state structures initialized");
 
-    info!("Loading wallet keypair...");
     let keypair_bytes: Vec<u8> = bs58::decode(
         std::env::var("WALLET_PRIVATE_KEYPAIR").expect("WALLET_PRIVATE_KEYPAIR must be set"),
     )
     .into_vec()
     .expect("Invalid private key");
-    debug!("Keypair bytes length: {}", keypair_bytes.len());
 
     // Keypair is 64 bytes: 32 bytes secret key + 32 bytes public key
     // But new_from_array expects just the 32-byte secret key
@@ -148,7 +141,6 @@ async fn main() -> Result<()> {
     );
 
     let metrics = if !skip_prometheus {
-        info!("Initializing Prometheus metrics...");
         let metrics = Some(Arc::new(Metrics::new()?));
         info!("Prometheus metrics initialized successfully");
         metrics
@@ -164,19 +156,15 @@ async fn main() -> Result<()> {
                 .unwrap_or_else(|_| "9090".to_string())
                 .parse()
                 .unwrap_or(9090);
-            info!("Starting Prometheus metrics server on port {}...", port);
             metrics_clone.start_server(port).await;
         });
         info!("Prometheus metrics server task spawned");
     }
 
-    info!("Creating shared gRPC client connection...");
     let grpc_client = create_grpc_client(&grpc_endpoint, grpc_x_token.clone()).await?;
     let shared_grpc_client = Arc::new(Mutex::new(grpc_client));
-    info!("Shared gRPC client created successfully");
 
     // Spawn blockhash watching task
-    info!("Starting blockhash watching task...");
     let g_blockhash_clone = Arc::clone(&g_blockhash);
     let grpc_client_blockhash = Arc::clone(&shared_grpc_client);
     tokio::spawn(async move {
@@ -188,7 +176,6 @@ async fn main() -> Result<()> {
     info!("Blockhash watching task spawned");
 
     // Spawn slot watching task
-    info!("Starting slot watching task...");
     let g_slot_sent_clone = Arc::clone(&g_slot_sent);
     let grpc_client_slot = Arc::clone(&shared_grpc_client);
     tokio::spawn(async move {
@@ -199,17 +186,23 @@ async fn main() -> Result<()> {
     info!("Slot watching task spawned");
 
     // Create channel for transaction confirmations: (signature, slot_landed, confirmed)
-    let (confirmation_tx, mut confirmation_rx) = mpsc::channel::<(String, u64, bool)>(100);
+    let (tx_updates_tx, mut tx_updates_rx) = mpsc::channel::<(String, u64, bool)>(100);
 
-    info!("Starting unified gRPC subscription stream...");
-    let grpc_client_subscriptions = Arc::clone(&shared_grpc_client);
-    let subscribe_tx = start_grpc_subscriptions(
-        grpc_client_subscriptions,
-        confirmation_tx.clone(),
-        commitment,
-    )
-    .await?;
-    info!("Unified gRPC subscription stream started");
+    // Spawn transaction watching task for the wallet
+    let grpc_client_transactions = Arc::clone(&shared_grpc_client);
+    tokio::spawn(async move {
+        if let Err(e) = watch_transactions(
+            grpc_client_transactions,
+            tx_updates_tx,
+            wallet_pubkey,
+            commitment,
+        )
+        .await
+        {
+            error!("[Transaction Watcher] Task failed: {}", e);
+        }
+    });
+    info!("Transaction watching task spawned");
     info!("=== Entering main transaction loop ===");
 
     loop {
@@ -252,7 +245,6 @@ async fn main() -> Result<()> {
         };
 
         // Build transaction instructions
-        info!("[TX] Building transaction instructions...");
         let instructions = vec![
             ComputeBudgetInstruction::set_compute_unit_limit(500),
             ComputeBudgetInstruction::set_compute_unit_price(priority_fee_micro_lamports),
@@ -260,74 +252,97 @@ async fn main() -> Result<()> {
         ];
 
         // Create and sign transaction
-        info!("[TX] Creating transaction with blockhash: {}", blockhash);
         let message =
             Message::new_with_blockhash(&instructions, Some(&wallet_keypair.pubkey()), &blockhash);
         let tx = Transaction::new(&[&wallet_keypair], message, blockhash);
 
         // Get signature from transaction
         let signature = tx.signatures[0].to_string();
-        info!("[TX] Transaction signed - Signature: {}", signature);
+        info!("[TX] Transaction created with signature: {}", signature);
+
+        // Send transaction initially
+        info!("[TX] Sending initial transaction: {}", signature);
+        let send_time = Instant::now();
+        match rpc_client
+            .send_transaction_with_config(
+                &tx,
+                RpcSendTransactionConfig {
+                    skip_preflight: true,
+                    ..Default::default()
+                },
+            )
+            .await
+        {
+            Ok(_) => {
+                info!("[TX] Successfully sent initial transaction");
+            }
+            Err(e) => {
+                warn!("[TX] Failed to send initial transaction: {}", e);
+            }
+        }
 
         // Store signature and slot in sent_transactions map
-        let send_time = Instant::now();
         {
             let mut sent = sent_transactions.write().unwrap();
             sent.insert(signature.clone(), (slot_sent, send_time));
         }
         info!("[TX] Stored transaction in sent_transactions map");
 
-        // Subscribe to transaction confirmation via gRPC
-        info!("[TX] Subscribing to transaction confirmation...");
-        if let Err(e) =
-            add_transaction_subscription(&subscribe_tx, signature.clone(), commitment).await
-        {
-            error!("[TX] Failed to add transaction subscription: {}", e);
-            continue;
-        }
-
         // Start 20-second resend loop with confirmation handling
-        info!("[TX] Starting 20-second resend loop...");
+        info!("[TX] Starting resend loop (20 second timeout)...");
         let timeout_duration = tokio::time::Duration::from_secs(20);
-        let timeout = tokio::time::sleep(timeout_duration);
-        tokio::pin!(timeout);
-
-        let mut resend_interval = tokio::time::interval(tokio::time::Duration::from_millis(2000));
-        resend_interval.tick().await; // First tick completes immediately
+        let resend_interval_duration = tokio::time::Duration::from_millis(2000);
 
         let mut confirmed = false;
         let mut slot_landed = 0u64;
         let mut is_success = false;
 
-        loop {
-            tokio::select! {
-                // Timeout after 20 seconds
-                _ = &mut timeout => {
-                    warn!("[TX] Transaction {} timed out after 20 seconds", signature);
-                    break;
-                }
+        let start_time = Instant::now();
 
-                // Confirmation received
-                Some((conf_signature, conf_slot_landed, conf_success)) = confirmation_rx.recv() => {
+        loop {
+            // Check if timeout elapsed
+            if start_time.elapsed() >= timeout_duration {
+                warn!("[TX] Transaction {} timed out after 20 seconds", signature);
+                break;
+            }
+
+            // Try to receive confirmation with timeout for resend interval
+            match tokio::time::timeout(resend_interval_duration, tx_updates_rx.recv()).await {
+                Ok(Some((conf_signature, conf_slot_landed, conf_success))) => {
+                    // Received a confirmation notification
                     if conf_signature == signature {
+                        // This is the confirmation for our current transaction
                         info!("[TX] Confirmation received for transaction: {}", signature);
                         confirmed = true;
                         slot_landed = conf_slot_landed;
                         is_success = conf_success;
-                        break;
+                        break; // Exit resend loop
+                    } else {
+                        // This is a confirmation for a different transaction, ignore it
+                        debug!(
+                            "[TX] Received confirmation for different transaction: {}, current: {}",
+                            conf_signature, signature
+                        );
                     }
                 }
-
-                // Resend interval tick
-                _ = resend_interval.tick() => {
+                Ok(None) => {
+                    // Channel closed
+                    error!("[TX] Transaction update channel closed unexpectedly");
+                    break;
+                }
+                Err(_) => {
+                    // Timeout elapsed (2 seconds passed), resend transaction
                     info!("[TX] Resending transaction: {}", signature);
-                    match rpc_client.send_transaction_with_config(
-                        &tx,
-                        RpcSendTransactionConfig {
-                            skip_preflight: true,
-                            ..Default::default()
-                        },
-                    ).await {
+                    match rpc_client
+                        .send_transaction_with_config(
+                            &tx,
+                            RpcSendTransactionConfig {
+                                skip_preflight: true,
+                                ..Default::default()
+                            },
+                        )
+                        .await
+                    {
                         Ok(_) => {
                             debug!("[TX] Successfully resent transaction");
                         }
@@ -338,6 +353,11 @@ async fn main() -> Result<()> {
                 }
             }
         }
+
+        info!(
+            "[TX] Exited resend loop - Confirmed: {}, Success: {}",
+            confirmed, is_success
+        );
 
         // Get send data from sent_transactions map
         let (stored_slot_sent, stored_send_time) = {

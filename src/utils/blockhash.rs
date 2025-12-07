@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use futures::StreamExt;
-use log::{error, info, warn};
+use log::{error, warn};
 use solana_sdk::hash::Hash;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -35,7 +35,6 @@ pub async fn watch_blockhash(
     g_blockhash: Arc<Mutex<GlobalBlockhash>>,
     commitment: CommitmentLevel,
 ) -> Result<()> {
-    info!("[Blockhash Watcher] Starting blockhash subscription task");
 
     loop {
         // Create subscription request for block_meta
@@ -51,7 +50,6 @@ pub async fn watch_blockhash(
             ..Default::default()
         };
 
-        info!("[Blockhash Watcher] Subscribing to gRPC block_meta stream...");
         let (_subscribe_tx, mut stream) = {
             let mut client = grpc_client.lock().await;
             client
@@ -59,8 +57,6 @@ pub async fn watch_blockhash(
                 .await
                 .context("Failed to create block_meta subscription")?
         };
-
-        info!("[Blockhash Watcher] Successfully subscribed to block_meta stream");
 
         // Process stream updates
         while let Some(message) = stream.next().await {
@@ -114,11 +110,6 @@ pub async fn watch_blockhash(
                                     g.last_valid_block_height = block_height;
                                     g.updated_at = chrono::Utc::now().timestamp();
                                     drop(g);
-
-                                    // info!(
-                                    //     "[Blockhash Watcher] Updated blockhash: {} at height {} (previous: {:?})",
-                                    //     new_hash, block_height, previous_hash
-                                    // );
                                 }
                             }
                             _ => {
