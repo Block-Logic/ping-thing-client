@@ -21,6 +21,7 @@ use utils::{
     grpc_client::{create_grpc_client, parse_commitment},
     metrics::Metrics,
     misc::sleep_ms,
+    priority_fees::{watch_prioritization_fees, GlobalPriorityFees},
     slot::{watch_slot, GlobalSlotSent},
     subscription_manager::watch_transactions,
 };
@@ -105,10 +106,17 @@ async fn main() -> Result<()> {
     let pinger_name = std::env::var("PINGER_NAME").unwrap_or_else(|_| "UNSET".to_string());
     info!("PINGER_NAME: {}", pinger_name);
 
+    let priority_fee_percentile = std::env::var("PRIORITY_FEE_PERCENTILE")
+        .unwrap_or_else(|_| "5000".to_string())
+        .parse::<u16>()
+        .unwrap_or(5000);
+    info!("PRIORITY_FEE_PERCENTILE: {}", priority_fee_percentile);
+
     let rpc_client = Arc::new(RpcClient::new(rpc_endpoint.clone()));
 
     let g_blockhash = Arc::new(Mutex::new(GlobalBlockhash::new()));
     let g_slot_sent = Arc::new(Mutex::new(GlobalSlotSent::new()));
+    let g_priority_fees = Arc::new(Mutex::new(GlobalPriorityFees::new()));
     // HashMap: key = signature, value = (slot_sent, send_time)
     let sent_transactions: Arc<RwLock<HashMap<String, (u64, Instant)>>> =
         Arc::new(RwLock::new(HashMap::new()));
@@ -185,6 +193,24 @@ async fn main() -> Result<()> {
     });
     info!("Slot watching task spawned");
 
+    if use_priority_fee {
+        let g_priority_fees_clone = Arc::clone(&g_priority_fees);
+        tokio::spawn(async move {
+            if let Err(e) = watch_prioritization_fees(
+                &rpc_endpoint,
+                g_priority_fees_clone,
+                priority_fee_percentile,
+            )
+            .await
+            {
+                error!("[Priority Fees Watcher] Task failed: {}", e);
+            }
+        });
+        info!("Priority fees watching task spawned");
+    } else {
+        info!("Priority fees watching task skipped (USE_PRIORITY_FEE=true)");
+    }
+
     // Create channel for transaction confirmations: (signature, slot_landed, confirmed)
     let (tx_updates_tx, mut tx_updates_rx) = mpsc::channel::<(String, u64, bool)>(100);
 
@@ -244,10 +270,17 @@ async fn main() -> Result<()> {
             }
         };
 
+        let current_priority_fee = if use_priority_fee {
+            let g_fees = g_priority_fees.lock().await;
+            g_fees.value.unwrap_or(0)
+        } else {
+            0 // USE_PRIORITY_FEE=true, so set fees to 0
+        };
+
         // Build transaction instructions
         let instructions = vec![
             ComputeBudgetInstruction::set_compute_unit_limit(500),
-            ComputeBudgetInstruction::set_compute_unit_price(priority_fee_micro_lamports),
+            ComputeBudgetInstruction::set_compute_unit_price(current_priority_fee),
             system_instruction::transfer(&wallet_keypair.pubkey(), &wallet_keypair.pubkey(), 5000),
         ];
 
@@ -385,23 +418,24 @@ async fn main() -> Result<()> {
                     slot_landed, stored_slot_sent
                 );
             } else {
-                // Send to Validators.app
+                let payload = json!({
+                    "time": time_latency_ms,
+                    "signature": signature,
+                    "transaction_type": "transfer",
+                    "success": true,
+                    "application": "web3",
+                    "commitment_level": commitment_str,
+                    "slot_sent": stored_slot_sent.to_string(),
+                    "slot_landed": slot_landed.to_string(),
+                    "priority_fee_micro_lamports": current_priority_fee.to_string(),
+                    "priority_fee_percentile": priority_fee_percentile/100,
+                    "pinger_region": pinger_region,
+                });
+
+                info!("[TX] VA Payload {}", payload);
+
                 if !skip_validators_app {
                     info!("[TX] Sending metrics to Validators.app...");
-                    let payload = json!({
-                        "time": time_latency_ms,
-                        "signature": signature,
-                        "transaction_type": "transfer",
-                        "success": true,
-                        "application": "web3",
-                        "commitment_level": commitment_str,
-                        "slot_sent": stored_slot_sent.to_string(),
-                        "slot_landed": slot_landed.to_string(),
-                        "priority_fee_micro_lamports": priority_fee_micro_lamports.to_string(),
-                        "pinger_region": pinger_region,
-                    });
-
-                    info!("[TX] VA Payload {}", payload);
 
                     let client = Client::new();
                     match client
