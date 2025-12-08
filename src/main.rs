@@ -207,7 +207,7 @@ async fn main() -> Result<()> {
 
     loop {
         if sleep_ms_loop > 0 {
-            debug!("Sleeping {}ms before next transaction cycle", sleep_ms_loop);
+            info!("Sleeping {}ms before next transaction cycle", sleep_ms_loop);
             sleep_ms(sleep_ms_loop).await;
         }
 
@@ -268,6 +268,7 @@ async fn main() -> Result<()> {
                 &tx,
                 RpcSendTransactionConfig {
                     skip_preflight: true,
+                    max_retries: Some(0),
                     ..Default::default()
                 },
             )
@@ -338,6 +339,7 @@ async fn main() -> Result<()> {
                             &tx,
                             RpcSendTransactionConfig {
                                 skip_preflight: true,
+                                max_retries: Some(0),
                                 ..Default::default()
                             },
                         )
@@ -398,6 +400,8 @@ async fn main() -> Result<()> {
                         "priority_fee_micro_lamports": priority_fee_micro_lamports.to_string(),
                         "pinger_region": pinger_region,
                     });
+
+                    info!("[TX] VA Payload {}", payload);
 
                     let client = Client::new();
                     match client
