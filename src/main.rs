@@ -245,6 +245,25 @@ async fn main() -> Result<()> {
             let g_blockhash = g_blockhash.lock().await;
             let g_slot = g_slot_sent.lock().await;
 
+            // Calculate time since last update for both (in seconds)
+            let blockhash_time_since = now - g_blockhash.updated_at;
+            let slot_time_since = now - g_slot.updated_at;
+
+            // Panic if either blockhash or slot hasn't been updated for more than 10 seconds
+            if blockhash_time_since >= 10 || slot_time_since >= 10 {
+                error!(
+                    "[PANIC] Blockhash or slot not updated within 10 seconds! \
+                     Blockhash time since last update: {}s, Slot time since last update: {}s",
+                    blockhash_time_since, slot_time_since
+                );
+                panic!(
+                    "Blockhash or slot stale for more than 10 seconds. \
+                     Blockhash: {}s since last update, Slot: {}s since last update. \
+                     Exiting process.",
+                    blockhash_time_since, slot_time_since
+                );
+            }
+
             if now - g_blockhash.updated_at < 10000 && now - g_slot.updated_at < 50 {
                 break (g_blockhash.value, g_slot.value);
             }
