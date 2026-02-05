@@ -53,6 +53,12 @@ async fn main() -> Result<()> {
         .unwrap_or(0);
     info!("SLEEP_MS_LOOP: {}ms", sleep_ms_loop);
 
+    let txs_per_minute_limit = std::env::var("TXS_PER_MINUTE_LIMIT")
+        .unwrap_or_else(|_| "10".to_string())
+        .parse::<u64>()
+        .unwrap_or(10);
+    info!("TXS_PER_MINUTE_LIMIT: {}", txs_per_minute_limit);
+
     let va_api_key = std::env::var("VA_API_KEY").expect("VA_API_KEY must be set");
     info!("VA_API_KEY: [SET]");
 
@@ -131,7 +137,7 @@ async fn main() -> Result<()> {
     // But new_from_array expects just the 32-byte secret key
     if keypair_bytes.len() < 32 {
         error!(
-            "Invalid keypair length: {} (expected at least 32 bytes)",
+            "Invalid keypair length: {:?} (expected at least 32 bytes)",
             keypair_bytes.len()
         );
         return Err(anyhow::anyhow!("Invalid keypair length"));
@@ -178,7 +184,7 @@ async fn main() -> Result<()> {
     tokio::spawn(async move {
         if let Err(e) = watch_blockhash(grpc_client_blockhash, g_blockhash_clone, commitment).await
         {
-            error!("[Blockhash Watcher] Task failed: {}", e);
+            error!("[Blockhash Watcher] Task failed: {:?}", e);
         }
     });
     info!("Blockhash watching task spawned");
@@ -188,7 +194,7 @@ async fn main() -> Result<()> {
     let grpc_client_slot = Arc::clone(&shared_grpc_client);
     tokio::spawn(async move {
         if let Err(e) = watch_slot(grpc_client_slot, g_slot_sent_clone, commitment).await {
-            error!("[Slot Watcher] Task failed: {}", e);
+            error!("[Slot Watcher] Task failed: {:?}", e);
         }
     });
     info!("Slot watching task spawned");
@@ -203,7 +209,7 @@ async fn main() -> Result<()> {
             )
             .await
             {
-                error!("[Priority Fees Watcher] Task failed: {}", e);
+                error!("[Priority Fees Watcher] Task failed: {:?}", e);
             }
         });
         info!("Priority fees watching task spawned");
@@ -225,16 +231,40 @@ async fn main() -> Result<()> {
         )
         .await
         {
-            error!("[Transaction Watcher] Task failed: {}", e);
+            error!("[Transaction Watcher] Task failed: {:?}", e);
         }
     });
     info!("Transaction watching task spawned");
     info!("=== Entering main transaction loop ===");
 
+    let tx_window_duration = std::time::Duration::from_secs(60);
+    let mut tx_count: u64 = 0;
+    let mut tx_window_start = Instant::now();
+
     loop {
         if sleep_ms_loop > 0 {
             info!("Sleeping {}ms before next transaction cycle", sleep_ms_loop);
             sleep_ms(sleep_ms_loop).await;
+        }
+
+        if tx_window_start.elapsed() >= tx_window_duration {
+            tx_count = 0;
+            tx_window_start = Instant::now();
+            info!("[TX] Rate limit window reset");
+        }
+
+        if tx_count >= txs_per_minute_limit {
+            let elapsed = tx_window_start.elapsed();
+            let wait_duration = tx_window_duration.saturating_sub(elapsed);
+            let wait_ms = wait_duration.as_millis() as u64;
+            info!(
+                "[TX] Rate limit reached ({} per minute). Waiting {}ms for reset",
+                txs_per_minute_limit, wait_ms
+            );
+            sleep_ms(wait_ms).await;
+            tx_count = 0;
+            tx_window_start = Instant::now();
+            info!("[TX] Rate limit window reset after wait");
         }
 
         info!("=== Starting new transaction cycle ===");
@@ -253,7 +283,7 @@ async fn main() -> Result<()> {
             if blockhash_time_since >= 10 || slot_time_since >= 10 {
                 error!(
                     "[PANIC] Blockhash or slot not updated within 10 seconds! \
-                     Blockhash time since last update: {}s, Slot time since last update: {}s",
+                     Blockhash time since last update: {:?}s, Slot time since last update: {:?}s",
                     blockhash_time_since, slot_time_since
                 );
                 panic!(
@@ -333,6 +363,8 @@ async fn main() -> Result<()> {
                 warn!("[TX] Failed to send initial transaction: {}", e);
             }
         }
+        // Count only initial sends; resends are not counted
+        tx_count += 1;
 
         // Store signature and slot in sent_transactions map
         {
@@ -433,7 +465,7 @@ async fn main() -> Result<()> {
             // Validate slot ordering
             if slot_landed < stored_slot_sent {
                 error!(
-                    "[TX] ERROR: Slot {} < {}. Not sending to Validators.app",
+                    "[TX] ERROR: Slot {:?} < {:?}. Not sending to Validators.app",
                     slot_landed, stored_slot_sent
                 );
             } else {
@@ -470,13 +502,13 @@ async fn main() -> Result<()> {
                                 info!("[TX] Successfully sent metrics to Validators.app");
                             } else {
                                 error!(
-                                    "[TX] Failed to send to Validators.app - Status: {}",
+                                    "[TX] Failed to send to Validators.app - Status: {:?}",
                                     response.status()
                                 );
                             }
                         }
                         Err(e) => {
-                            error!("[TX] Error sending to Validators.app: {}", e);
+                            error!("[TX] Error sending to Validators.app: {:?}", e);
                         }
                     }
                 }

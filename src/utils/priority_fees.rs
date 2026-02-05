@@ -76,9 +76,6 @@ pub async fn watch_prioritization_fees(
                 if response.status().is_success() {
                     match response.json::<RpcResponse>().await {
                         Ok(rpc_response) => {
-
-
-
                             // Process the fee results
                             if !rpc_response.result.is_empty() {
                                 let mut fees: Vec<u64> = rpc_response
@@ -110,20 +107,21 @@ pub async fn watch_prioritization_fees(
                         }
                         Err(e) => {
                             error!(
-                                "[Priority Fees Watcher] Failed to parse RPC response: {}",
+                                "[Priority Fees Watcher] Failed to parse RPC response: {:?}",
                                 e
                             );
                         }
                     }
                 } else {
                     error!(
-                        "[Priority Fees Watcher] RPC request failed with status: {}",
+                        "[Priority Fees Watcher] RPC request failed with status: {:?}",
                         response.status()
                     );
                 }
             }
             Err(e) => {
-                error!("[Priority Fees Watcher] HTTP request error: {}", e);
+                error!("[Priority Fees Watcher] HTTP request error: {:?}", e);
+                // println!("{:?}", e)
             }
         }
 

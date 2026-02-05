@@ -90,7 +90,7 @@ pub async fn watch_slot(
             }
             Err(e) => {
                 error!(
-                    "[Slot Watcher] Error in stream (message #{}): {:?}",
+                    "[Slot Watcher] Error in stream (message #{:?}): {:?}",
                     message_count, e
                 );
                 // Stream error - will need to reconnect
