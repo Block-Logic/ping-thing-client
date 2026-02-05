@@ -88,9 +88,9 @@ impl Metrics {
         });
 
         info!(
-            "[Metrics] Prometheus metrics server listening on http://127.0.0.1:{}/metrics",
+            "[Metrics] Prometheus metrics server listening on :{}/metrics",
             port
         );
-        warp::serve(metrics_route).run(([127, 0, 0, 1], port)).await;
+        warp::serve(metrics_route).run(([0, 0, 0, 0], port)).await;
     }
 }

@@ -35,7 +35,6 @@ pub async fn watch_blockhash(
     g_blockhash: Arc<Mutex<GlobalBlockhash>>,
     commitment: CommitmentLevel,
 ) -> Result<()> {
-
     loop {
         // Create subscription request for block_meta
         let mut blocks_filter = HashMap::new();
@@ -84,7 +83,7 @@ pub async fn watch_blockhash(
                                             }
                                         } else {
                                             error!(
-                                                "[Blockhash Watcher] Decoded blockhash has wrong length: {} (expected 32)",
+                                                "[Blockhash Watcher] Decoded blockhash has wrong length: {:?} (expected 32)",
                                                 decoded.len()
                                             );
                                             continue;
@@ -92,7 +91,7 @@ pub async fn watch_blockhash(
                                     }
                                     Err(e) => {
                                         error!(
-                                            "[Blockhash Watcher] Failed to decode blockhash: {}",
+                                            "[Blockhash Watcher] Failed to decode blockhash: {:?}",
                                             e
                                         );
                                         continue;
@@ -119,7 +118,7 @@ pub async fn watch_blockhash(
                     }
                 }
                 Err(e) => {
-                    error!("[Blockhash Watcher] Stream error: {}", e);
+                    error!("[Blockhash Watcher] Stream error: {:?}", e);
                     break;
                 }
             }

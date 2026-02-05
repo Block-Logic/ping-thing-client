@@ -81,7 +81,7 @@ pub async fn watch_transactions(
                                     .await
                                 {
                                     error!(
-                                            "[Transaction Watcher] Failed to send transaction update: {}",
+                                            "[Transaction Watcher] Failed to send transaction update: {:?}",
                                             e
                                         );
                                 }
@@ -94,7 +94,7 @@ pub async fn watch_transactions(
                 }
             }
             Err(e) => {
-                error!("[Transaction Watcher] Stream error: {}", e);
+                error!("[Transaction Watcher] Stream error: {:?}", e);
                 break;
             }
         }
