@@ -10,7 +10,7 @@ pub async fn create_grpc_client(
     endpoint: &str,
     x_token: Option<String>,
 ) -> Result<GeyserGrpcClient<impl Interceptor>> {
-    info!("[gRPC Client] Creating client for endpoint: {}", endpoint);
+    info!("[gRPC Client] Creating client for endpoint: {:?}", endpoint);
 
     // Always use TLS config with native roots (works for both http and https)
     debug!("[gRPC Client] Configuring TLS with native roots...");
@@ -37,16 +37,19 @@ pub async fn create_grpc_client(
     };
 
     info!(
-        "[gRPC Client] Attempting to connect to endpoint: {}...",
+        "[gRPC Client] Attempting to connect to endpoint: {:?}...",
         endpoint
     );
     let client = builder.connect().await.map_err(|e| {
-        warn!("[gRPC Client] Connection failed: {}", e);
+        warn!(
+            "[gRPC Client] Connection failed for endpoint {:?}: {:?}",
+            endpoint, e
+        );
         anyhow::anyhow!("Failed to connect to gRPC endpoint {}: {}", endpoint, e)
     })?;
 
     info!(
-        "[gRPC Client] Successfully connected to gRPC endpoint: {}",
+        "[gRPC Client] Successfully connected to gRPC endpoint: {:?}",
         endpoint
     );
     Ok(client)
@@ -55,7 +58,7 @@ pub async fn create_grpc_client(
 /// Parses commitment string to CommitmentLevel enum
 pub fn parse_commitment(commitment_str: &str) -> Result<CommitmentLevel> {
     debug!(
-        "[gRPC Client] Parsing commitment string: {}",
+        "[gRPC Client] Parsing commitment string: {:?}",
         commitment_str
     );
     let commitment = match commitment_str.to_lowercase().as_str() {

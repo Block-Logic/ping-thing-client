@@ -100,7 +100,7 @@ pub async fn watch_slot(
     }
 
     warn!(
-        "[Slot Watcher] Stream ended after processing {} messages",
+        "[Slot Watcher] Stream ended after processing {:?} messages",
         message_count
     );
 

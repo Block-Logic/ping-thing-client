@@ -28,7 +28,7 @@ impl Metrics {
             buckets.push(i as f64);
         }
         debug!(
-            "[Metrics] Created {} buckets for confirmation latency",
+            "[Metrics] Created {:?} buckets for confirmation latency",
             buckets.len()
         );
 
@@ -45,7 +45,7 @@ impl Metrics {
         info!("[Metrics] Creating histogram buckets for slot latency...");
         let slot_buckets: Vec<f64> = (1..=30).map(|x| x as f64).collect();
         debug!(
-            "[Metrics] Created {} buckets for slot latency",
+            "[Metrics] Created {:?} buckets for slot latency",
             slot_buckets.len()
         );
 
@@ -73,7 +73,7 @@ impl Metrics {
 
     pub async fn start_server(&self, port: u16) {
         info!(
-            "[Metrics] Starting Prometheus metrics server on port {}...",
+            "[Metrics] Starting Prometheus metrics server on port {:?}...",
             port
         );
         let metrics = Arc::new(self.registry.clone());
@@ -88,7 +88,7 @@ impl Metrics {
         });
 
         info!(
-            "[Metrics] Prometheus metrics server listening on :{}/metrics",
+            "[Metrics] Prometheus metrics server listening on :{:?}/metrics",
             port
         );
         warp::serve(metrics_route).run(([0, 0, 0, 0], port)).await;
