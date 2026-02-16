@@ -2798,6 +2798,8 @@ name = "ping-thing-client-rust"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
+ "bincode",
  "bs58",
  "chrono",
  "dotenv",

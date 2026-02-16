@@ -20,7 +20,7 @@ pub async fn watch_transactions(
     commitment: CommitmentLevel,
 ) -> Result<()> {
     info!(
-        "[Transaction Watcher] Starting transaction watching for wallet: {}",
+        "[Transaction Watcher] Starting transaction watching for wallet: {:?}",
         wallet_pubkey
     );
 
@@ -71,18 +71,19 @@ pub async fn watch_transactions(
                                     .is_some_and(|meta| meta.err.is_none());
 
                                 info!(
-                                        "[Transaction Watcher] Transaction update - Signature: {}, Slot: {}, Confirmed: {}",
+                                        "[Transaction Watcher] Transaction update - Signature: {:?}, Slot: {:?}, Confirmed: {:?}",
                                         tx_signature, slot_landed, confirmed
                                     );
 
-                                // Send transaction update through channel
+                                let transaction_signature_for_channel_send =
+                                    tx_signature.clone();
                                 if let Err(e) = tx_updates_tx
-                                    .send((tx_signature, slot_landed, confirmed))
+                                    .send((transaction_signature_for_channel_send, slot_landed, confirmed))
                                     .await
                                 {
                                     error!(
-                                            "[Transaction Watcher] Failed to send transaction update: {:?}",
-                                            e
+                                            "[Transaction Watcher] Failed to send transaction update for signature {:?}, slot {:?}, confirmed {:?}: {:?}",
+                                            tx_signature, slot_landed, confirmed, e
                                         );
                                 }
                             }
@@ -94,7 +95,10 @@ pub async fn watch_transactions(
                 }
             }
             Err(e) => {
-                error!("[Transaction Watcher] Stream error: {:?}", e);
+                error!(
+                    "[Transaction Watcher] Stream error for wallet {:?}: {:?}",
+                    wallet_pubkey, e
+                );
                 break;
             }
         }

@@ -1,10 +1,12 @@
 mod utils;
 
 use anyhow::Result;
+use base64::prelude::BASE64_STANDARD;
+use base64::Engine;
 use dotenv::dotenv;
 use log::{debug, error, info, warn};
 use reqwest::Client;
-use serde_json::json;
+use serde_json::{json, Value};
 use solana_client::{nonblocking::rpc_client::RpcClient, rpc_config::RpcSendTransactionConfig};
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_keypair::Keypair;
@@ -12,7 +14,9 @@ use solana_message::Message;
 use solana_signer::Signer;
 use solana_system_interface::instruction as system_instruction;
 use solana_transaction::Transaction;
+use solana_transaction_status::UiTransactionEncoding;
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 use tokio::sync::{mpsc, Mutex};
@@ -26,6 +30,254 @@ use utils::{
     subscription_manager::watch_transactions,
 };
 
+#[derive(Debug)]
+enum SendTransactionRequestError {
+    TransactionSerializationFailed { reason: String },
+    SendTransactionRequestFailed {
+        endpoint: String,
+        send_transaction_request_error: reqwest::Error,
+    },
+    SendTransactionResponseReadFailed {
+        endpoint: String,
+        send_transaction_response_read_error: reqwest::Error,
+    },
+    SendTransactionRequestNonSuccessStatus {
+        endpoint: String,
+        status_code: u16,
+        response_body: String,
+    },
+    SendTransactionResponseInvalidJson {
+        endpoint: String,
+        response_body: String,
+        reason: String,
+    },
+    SendTransactionResponseRpcError {
+        endpoint: String,
+        code: i64,
+        message: String,
+    },
+    SendTransactionResponseMissingSignature { endpoint: String, response_body: String },
+    SendTransactionResponseSignatureMismatch {
+        endpoint: String,
+        expected_signature: String,
+        actual_signature: String,
+    },
+    RpcClientSendTransactionFailed {
+        rpc_client_send_transaction_error: solana_client::client_error::ClientError,
+    },
+}
+
+impl fmt::Display for SendTransactionRequestError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SendTransactionRequestError::TransactionSerializationFailed { reason } => {
+                write!(formatter, "Failed to serialize transaction: {}", reason)
+            }
+            SendTransactionRequestError::SendTransactionRequestFailed {
+                endpoint,
+                send_transaction_request_error,
+            } => {
+                write!(
+                    formatter,
+                    "Failed to send sendTransaction request to {}: {:?}",
+                    endpoint, send_transaction_request_error
+                )
+            }
+            SendTransactionRequestError::SendTransactionResponseReadFailed {
+                endpoint,
+                send_transaction_response_read_error,
+            } => {
+                write!(
+                    formatter,
+                    "Failed to read sendTransaction response from {}: {:?}",
+                    endpoint, send_transaction_response_read_error
+                )
+            }
+            SendTransactionRequestError::SendTransactionRequestNonSuccessStatus {
+                endpoint,
+                status_code,
+                response_body,
+            } => {
+                write!(
+                    formatter,
+                    "sendTransaction request to {} failed with status {}: {}",
+                    endpoint, status_code, response_body
+                )
+            }
+            SendTransactionRequestError::SendTransactionResponseInvalidJson {
+                endpoint,
+                response_body,
+                reason,
+            } => {
+                write!(
+                    formatter,
+                    "sendTransaction response from {} had invalid JSON: {} ({})",
+                    endpoint, response_body, reason
+                )
+            }
+            SendTransactionRequestError::SendTransactionResponseRpcError {
+                endpoint,
+                code,
+                message,
+            } => {
+                write!(
+                    formatter,
+                    "sendTransaction response from {} returned error {}: {}",
+                    endpoint, code, message
+                )
+            }
+            SendTransactionRequestError::SendTransactionResponseMissingSignature {
+                endpoint,
+                response_body,
+            } => {
+                write!(
+                    formatter,
+                    "sendTransaction response from {} missing result signature: {}",
+                    endpoint, response_body
+                )
+            }
+            SendTransactionRequestError::SendTransactionResponseSignatureMismatch {
+                endpoint,
+                expected_signature,
+                actual_signature,
+            } => {
+                write!(
+                    formatter,
+                    "sendTransaction response from {} returned mismatched signature {} (expected {})",
+                    endpoint, actual_signature, expected_signature
+                )
+            }
+            SendTransactionRequestError::RpcClientSendTransactionFailed {
+                rpc_client_send_transaction_error,
+            } => write!(
+                formatter,
+                "RPC client sendTransaction failed: {:?}",
+                rpc_client_send_transaction_error
+            ),
+        }
+    }
+}
+
+impl std::error::Error for SendTransactionRequestError {}
+
+async fn send_transaction_using_configured_send_transaction_endpoint_or_rpc_client(
+    send_transaction_endpoint: Option<&str>,
+    send_transaction_http_client: &Client,
+    rpc_client: &RpcClient,
+    transaction: &Transaction,
+    send_transaction_config: RpcSendTransactionConfig,
+) -> Result<(), SendTransactionRequestError> {
+    if let Some(send_transaction_endpoint_value) = send_transaction_endpoint {
+        let serialized_transaction_bytes = bincode::serialize(transaction).map_err(|error| {
+            SendTransactionRequestError::TransactionSerializationFailed {
+                reason: error.to_string(),
+            }
+        })?;
+        let serialized_transaction_base64 = BASE64_STANDARD.encode(serialized_transaction_bytes);
+        let mut adjusted_send_transaction_config = send_transaction_config;
+        if adjusted_send_transaction_config.encoding.is_none() {
+            adjusted_send_transaction_config.encoding = Some(UiTransactionEncoding::Base64);
+        }
+        let request_body = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "sendTransaction",
+            "params": [serialized_transaction_base64, adjusted_send_transaction_config],
+        });
+
+        let response = send_transaction_http_client
+            .post(send_transaction_endpoint_value)
+            .json(&request_body)
+            .send()
+            .await
+            .map_err(
+                |send_transaction_request_error| SendTransactionRequestError::SendTransactionRequestFailed {
+                    endpoint: send_transaction_endpoint_value.to_string(),
+                    send_transaction_request_error,
+                },
+            )?;
+
+        let response_status = response.status();
+        let response_body = response
+            .text()
+            .await
+            .map_err(
+                |send_transaction_response_read_error| SendTransactionRequestError::SendTransactionResponseReadFailed {
+                    endpoint: send_transaction_endpoint_value.to_string(),
+                    send_transaction_response_read_error,
+                },
+            )?;
+
+        if !response_status.is_success() {
+            return Err(
+                SendTransactionRequestError::SendTransactionRequestNonSuccessStatus {
+                    endpoint: send_transaction_endpoint_value.to_string(),
+                    status_code: response_status.as_u16(),
+                    response_body,
+                },
+            );
+        }
+
+        let response_value: Value = serde_json::from_str(&response_body).map_err(|error| {
+            SendTransactionRequestError::SendTransactionResponseInvalidJson {
+                endpoint: send_transaction_endpoint_value.to_string(),
+                response_body: response_body.clone(),
+                reason: error.to_string(),
+            }
+        })?;
+
+        if let Some(error_value) = response_value.get("error") {
+            let error_code = error_value
+                .get("code")
+                .and_then(|value| value.as_i64())
+                .unwrap_or(0);
+            let error_message = error_value
+                .get("message")
+                .and_then(|value| value.as_str())
+                .unwrap_or("Unknown RPC error")
+                .to_string();
+            return Err(SendTransactionRequestError::SendTransactionResponseRpcError {
+                endpoint: send_transaction_endpoint_value.to_string(),
+                code: error_code,
+                message: error_message,
+            });
+        }
+
+        let response_signature = response_value
+            .get("result")
+            .and_then(|value| value.as_str())
+            .ok_or_else(|| {
+                SendTransactionRequestError::SendTransactionResponseMissingSignature {
+                    endpoint: send_transaction_endpoint_value.to_string(),
+                    response_body: response_body.clone(),
+                }
+            })?;
+
+        let expected_signature = transaction.signatures[0].to_string();
+        if response_signature != expected_signature {
+            return Err(
+                SendTransactionRequestError::SendTransactionResponseSignatureMismatch {
+                    endpoint: send_transaction_endpoint_value.to_string(),
+                    expected_signature,
+                    actual_signature: response_signature.to_string(),
+                },
+            );
+        }
+
+        Ok(())
+    } else {
+        rpc_client
+            .send_transaction_with_config(transaction, send_transaction_config)
+            .await
+            .map(|_| ())
+            .map_err(
+                |rpc_client_send_transaction_error| SendTransactionRequestError::RpcClientSendTransactionFailed {
+                    rpc_client_send_transaction_error,
+                },
+            )
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     info!("=== Starting Ping Thing Client ===");
@@ -35,10 +287,27 @@ async fn main() -> Result<()> {
 
     info!("Loading configuration from environment variables...");
     let rpc_endpoint = std::env::var("RPC_ENDPOINT").expect("RPC_ENDPOINT must be set");
-    info!("RPC_ENDPOINT: {}", rpc_endpoint);
+    info!("RPC_ENDPOINT: {:?}", rpc_endpoint);
+
+    let send_transaction_endpoint_from_environment_variable =
+        std::env::var("SEND_TX_ENDPOINT").ok();
+    if let Some(send_transaction_endpoint_value) =
+        &send_transaction_endpoint_from_environment_variable
+    {
+        info!("SEND_TX_ENDPOINT: {:?}", send_transaction_endpoint_value);
+    } else {
+        info!("SEND_TX_ENDPOINT: [NOT SET]");
+    }
+    let resolved_transaction_send_endpoint = send_transaction_endpoint_from_environment_variable
+        .clone()
+        .unwrap_or_else(|| rpc_endpoint.clone());
+    info!(
+        "TRANSACTION_SEND_ENDPOINT: {:?}",
+        resolved_transaction_send_endpoint
+    );
 
     let grpc_endpoint = std::env::var("GRPC_ENDPOINT").expect("GRPC_ENDPOINT must be set");
-    info!("GRPC_ENDPOINT: {}", grpc_endpoint);
+    info!("GRPC_ENDPOINT: {:?}", grpc_endpoint);
 
     let grpc_x_token = std::env::var("GRPC_X_TOKEN").ok();
     if grpc_x_token.is_some() {
@@ -51,13 +320,13 @@ async fn main() -> Result<()> {
         .unwrap_or_else(|_| "0".to_string())
         .parse::<u64>()
         .unwrap_or(0);
-    info!("SLEEP_MS_LOOP: {}ms", sleep_ms_loop);
+    info!("SLEEP_MS_LOOP: {:?}ms", sleep_ms_loop);
 
     let txs_per_minute_limit = std::env::var("TXS_PER_MINUTE_LIMIT")
         .unwrap_or_else(|_| "10".to_string())
         .parse::<u64>()
         .unwrap_or(10);
-    info!("TXS_PER_MINUTE_LIMIT: {}", txs_per_minute_limit);
+    info!("TXS_PER_MINUTE_LIMIT: {:?}", txs_per_minute_limit);
 
     let va_api_key = std::env::var("VA_API_KEY").expect("VA_API_KEY must be set");
     info!("VA_API_KEY: [SET]");
@@ -65,10 +334,10 @@ async fn main() -> Result<()> {
     let verbose_log = std::env::var("VERBOSE_LOG")
         .map(|v| v == "true")
         .unwrap_or(false);
-    info!("VERBOSE_LOG: {}", verbose_log);
+    info!("VERBOSE_LOG: {:?}", verbose_log);
 
     let commitment_str = std::env::var("COMMITMENT").unwrap_or_else(|_| "confirmed".to_string());
-    info!("COMMITMENT: {}", commitment_str);
+    info!("COMMITMENT: {:?}", commitment_str);
     let commitment = parse_commitment(&commitment_str)?;
     debug!("Parsed commitment level: {:?}", commitment);
 
@@ -76,12 +345,12 @@ async fn main() -> Result<()> {
         .unwrap_or_else(|_| "60".to_string())
         .parse::<u64>()
         .unwrap_or(60);
-    info!("TX_CONFIRMATION_TIMEOUT: {}s", tx_confirmation_timeout);
+    info!("TX_CONFIRMATION_TIMEOUT: {:?}s", tx_confirmation_timeout);
 
     let use_priority_fee = std::env::var("USE_PRIORITY_FEE")
         .map(|v| v == "true")
         .unwrap_or(false);
-    info!("USE_PRIORITY_FEE: {}", use_priority_fee);
+    info!("USE_PRIORITY_FEE: {:?}", use_priority_fee);
 
     let priority_fee_micro_lamports = if use_priority_fee {
         std::env::var("PRIORITY_FEE_MICRO_LAMPORTS")
@@ -92,33 +361,34 @@ async fn main() -> Result<()> {
         0
     };
     info!(
-        "PRIORITY_FEE_MICRO_LAMPORTS: {}",
+        "PRIORITY_FEE_MICRO_LAMPORTS: {:?}",
         priority_fee_micro_lamports
     );
 
     let pinger_region = std::env::var("PINGER_REGION").expect("PINGER_REGION must be set");
-    info!("PINGER_REGION: {}", pinger_region);
+    info!("PINGER_REGION: {:?}", pinger_region);
 
     let skip_validators_app = std::env::var("SKIP_VALIDATORS_APP")
         .map(|v| v == "true")
         .unwrap_or(false);
-    info!("SKIP_VALIDATORS_APP: {}", skip_validators_app);
+    info!("SKIP_VALIDATORS_APP: {:?}", skip_validators_app);
 
     let skip_prometheus = std::env::var("SKIP_PROMETHEUS")
         .map(|v| v == "true")
         .unwrap_or(false);
-    info!("SKIP_PROMETHEUS: {}", skip_prometheus);
+    info!("SKIP_PROMETHEUS: {:?}", skip_prometheus);
 
     let pinger_name = std::env::var("PINGER_NAME").unwrap_or_else(|_| "UNSET".to_string());
-    info!("PINGER_NAME: {}", pinger_name);
+    info!("PINGER_NAME: {:?}", pinger_name);
 
     let priority_fee_percentile = std::env::var("PRIORITY_FEE_PERCENTILE")
         .unwrap_or_else(|_| "5000".to_string())
         .parse::<u16>()
         .unwrap_or(5000);
-    info!("PRIORITY_FEE_PERCENTILE: {}", priority_fee_percentile);
+    info!("PRIORITY_FEE_PERCENTILE: {:?}", priority_fee_percentile);
 
     let rpc_client = Arc::new(RpcClient::new(rpc_endpoint.clone()));
+    let send_transaction_http_client = Client::new();
 
     let g_blockhash = Arc::new(Mutex::new(GlobalBlockhash::new()));
     let g_slot_sent = Arc::new(Mutex::new(GlobalSlotSent::new()));
@@ -150,7 +420,7 @@ async fn main() -> Result<()> {
     let wallet_keypair = Keypair::new_from_array(secret_key);
     let wallet_pubkey = wallet_keypair.pubkey();
     info!(
-        "Wallet keypair loaded successfully. Pubkey: {}",
+        "Wallet keypair loaded successfully. Pubkey: {:?}",
         wallet_pubkey
     );
 
@@ -184,7 +454,10 @@ async fn main() -> Result<()> {
     tokio::spawn(async move {
         if let Err(e) = watch_blockhash(grpc_client_blockhash, g_blockhash_clone, commitment).await
         {
-            error!("[Blockhash Watcher] Task failed: {:?}", e);
+            error!(
+                "[Blockhash Watcher] Task failed for commitment {:?}: {:?}",
+                commitment, e
+            );
         }
     });
     info!("Blockhash watching task spawned");
@@ -194,7 +467,10 @@ async fn main() -> Result<()> {
     let grpc_client_slot = Arc::clone(&shared_grpc_client);
     tokio::spawn(async move {
         if let Err(e) = watch_slot(grpc_client_slot, g_slot_sent_clone, commitment).await {
-            error!("[Slot Watcher] Task failed: {:?}", e);
+            error!(
+                "[Slot Watcher] Task failed for commitment {:?}: {:?}",
+                commitment, e
+            );
         }
     });
     info!("Slot watching task spawned");
@@ -209,7 +485,10 @@ async fn main() -> Result<()> {
             )
             .await
             {
-                error!("[Priority Fees Watcher] Task failed: {:?}", e);
+                error!(
+                    "[Priority Fees Watcher] Task failed for endpoint {:?}: {:?}",
+                    rpc_endpoint, e
+                );
             }
         });
         info!("Priority fees watching task spawned");
@@ -231,7 +510,10 @@ async fn main() -> Result<()> {
         )
         .await
         {
-            error!("[Transaction Watcher] Task failed: {:?}", e);
+            error!(
+                "[Transaction Watcher] Task failed for wallet {:?}: {:?}",
+                wallet_pubkey, e
+            );
         }
     });
     info!("Transaction watching task spawned");
@@ -243,7 +525,7 @@ async fn main() -> Result<()> {
 
     loop {
         if sleep_ms_loop > 0 {
-            info!("Sleeping {}ms before next transaction cycle", sleep_ms_loop);
+            info!("Sleeping {:?}ms before next transaction cycle", sleep_ms_loop);
             sleep_ms(sleep_ms_loop).await;
         }
 
@@ -258,7 +540,7 @@ async fn main() -> Result<()> {
             let wait_duration = tx_window_duration.saturating_sub(elapsed);
             let wait_ms = wait_duration.as_millis() as u64;
             info!(
-                "[TX] Rate limit reached ({} per minute). Waiting {}ms for reset",
+                "[TX] Rate limit reached ({:?} per minute). Waiting {:?}ms for reset",
                 txs_per_minute_limit, wait_ms
             );
             sleep_ms(wait_ms).await;
@@ -340,28 +622,61 @@ async fn main() -> Result<()> {
 
         // Get signature from transaction
         let signature = tx.signatures[0].to_string();
-        info!("[TX] Transaction created with signature: {}", signature);
+        info!("[TX] Transaction created with signature: {:?}", signature);
 
         // Send transaction initially
-        info!("[TX] Sending initial transaction: {}", signature);
+        info!("[TX] Sending initial transaction: {:?}", signature);
         let send_time = Instant::now();
-        match rpc_client
-            .send_transaction_with_config(
-                &tx,
-                RpcSendTransactionConfig {
-                    skip_preflight: true,
-                    max_retries: Some(0),
-                    ..Default::default()
-                },
-            )
-            .await
+        match send_transaction_using_configured_send_transaction_endpoint_or_rpc_client(
+            send_transaction_endpoint_from_environment_variable.as_deref(),
+            &send_transaction_http_client,
+            rpc_client.as_ref(),
+            &tx,
+            RpcSendTransactionConfig {
+                skip_preflight: true,
+                max_retries: Some(0),
+                ..Default::default()
+            },
+        )
+        .await
         {
             Ok(_) => {
                 info!("[TX] Successfully sent initial transaction");
             }
-            Err(e) => {
-                warn!("[TX] Failed to send initial transaction: {}", e);
-            }
+            Err(send_transaction_request_error) => match &send_transaction_request_error {
+                SendTransactionRequestError::SendTransactionRequestFailed {
+                    endpoint,
+                    send_transaction_request_error,
+                } => {
+                    error!(
+                        "[TX] Failed to send initial transaction for signature {:?} to endpoint {:?}: {:?}",
+                        signature, endpoint, send_transaction_request_error
+                    );
+                }
+                SendTransactionRequestError::SendTransactionResponseReadFailed {
+                    endpoint,
+                    send_transaction_response_read_error,
+                } => {
+                    error!(
+                        "[TX] Failed to read sendTransaction response for signature {:?} from endpoint {:?}: {:?}",
+                        signature, endpoint, send_transaction_response_read_error
+                    );
+                }
+                SendTransactionRequestError::RpcClientSendTransactionFailed {
+                    rpc_client_send_transaction_error,
+                } => {
+                    error!(
+                        "[TX] Failed to send initial transaction for signature {:?} via RPC client: {:?}",
+                        signature, rpc_client_send_transaction_error
+                    );
+                }
+                _ => {
+                    error!(
+                        "[TX] Failed to send initial transaction for signature {:?}: {:?}",
+                        signature, send_transaction_request_error
+                    );
+                }
+            },
         }
         // Count only initial sends; resends are not counted
         tx_count += 1;
@@ -387,7 +702,7 @@ async fn main() -> Result<()> {
         loop {
             // Check if timeout elapsed
             if start_time.elapsed() >= timeout_duration {
-                warn!("[TX] Transaction {} timed out after 20 seconds", signature);
+                warn!("[TX] Transaction {:?} timed out after 20 seconds", signature);
                 break;
             }
 
@@ -397,7 +712,7 @@ async fn main() -> Result<()> {
                     // Received a confirmation notification
                     if conf_signature == signature {
                         // This is the confirmation for our current transaction
-                        info!("[TX] Confirmation received for transaction: {}", signature);
+                        info!("[TX] Confirmation received for transaction: {:?}", signature);
                         confirmed = true;
                         slot_landed = conf_slot_landed;
                         is_success = conf_success;
@@ -405,43 +720,79 @@ async fn main() -> Result<()> {
                     } else {
                         // This is a confirmation for a different transaction, ignore it
                         debug!(
-                            "[TX] Received confirmation for different transaction: {}, current: {}",
+                            "[TX] Received confirmation for different transaction: {:?}, current: {:?}",
                             conf_signature, signature
                         );
                     }
                 }
                 Ok(None) => {
                     // Channel closed
-                    error!("[TX] Transaction update channel closed unexpectedly");
+                    error!(
+                        "[TX] Transaction update channel closed unexpectedly for signature: {:?}",
+                        signature
+                    );
                     break;
                 }
                 Err(_) => {
                     // Timeout elapsed (2 seconds passed), resend transaction
-                    info!("[TX] Resending transaction: {}", signature);
-                    match rpc_client
-                        .send_transaction_with_config(
-                            &tx,
-                            RpcSendTransactionConfig {
-                                skip_preflight: true,
-                                max_retries: Some(0),
-                                ..Default::default()
-                            },
-                        )
-                        .await
+                    info!("[TX] Resending transaction: {:?}", signature);
+                    match send_transaction_using_configured_send_transaction_endpoint_or_rpc_client(
+                        send_transaction_endpoint_from_environment_variable.as_deref(),
+                        &send_transaction_http_client,
+                        rpc_client.as_ref(),
+                        &tx,
+                        RpcSendTransactionConfig {
+                            skip_preflight: true,
+                            max_retries: Some(0),
+                            ..Default::default()
+                        },
+                    )
+                    .await
                     {
                         Ok(_) => {
                             debug!("[TX] Successfully resent transaction");
                         }
-                        Err(e) => {
-                            warn!("[TX] Failed to resend transaction: {}", e);
-                        }
+                        Err(send_transaction_request_error) => match &send_transaction_request_error {
+                            SendTransactionRequestError::SendTransactionRequestFailed {
+                                endpoint,
+                                send_transaction_request_error,
+                            } => {
+                                error!(
+                                    "[TX] Failed to resend transaction for signature {:?} to endpoint {:?}: {:?}",
+                                    signature, endpoint, send_transaction_request_error
+                                );
+                            }
+                            SendTransactionRequestError::SendTransactionResponseReadFailed {
+                                endpoint,
+                                send_transaction_response_read_error,
+                            } => {
+                                error!(
+                                    "[TX] Failed to read sendTransaction response for resend signature {:?} from endpoint {:?}: {:?}",
+                                    signature, endpoint, send_transaction_response_read_error
+                                );
+                            }
+                            SendTransactionRequestError::RpcClientSendTransactionFailed {
+                                rpc_client_send_transaction_error,
+                            } => {
+                                error!(
+                                    "[TX] Failed to resend transaction for signature {:?} via RPC client: {:?}",
+                                    signature, rpc_client_send_transaction_error
+                                );
+                            }
+                            _ => {
+                                error!(
+                                    "[TX] Failed to resend transaction for signature {:?}: {:?}",
+                                    signature, send_transaction_request_error
+                                );
+                            }
+                        },
                     }
                 }
             }
         }
 
         info!(
-            "[TX] Exited resend loop - Confirmed: {}, Success: {}",
+            "[TX] Exited resend loop - Confirmed: {:?}, Success: {:?}",
             confirmed, is_success
         );
 
@@ -458,7 +809,7 @@ async fn main() -> Result<()> {
         if confirmed && is_success {
             let slot_latency = slot_landed.saturating_sub(stored_slot_sent);
             info!(
-                "[TX] Transaction confirmed - Signature: {}, Slot latency: {} (landed: {}, sent: {}), Time latency: {}ms",
+                "[TX] Transaction confirmed - Signature: {:?}, Slot latency: {:?} (landed: {:?}, sent: {:?}), Time latency: {:?}ms",
                 signature, slot_latency, slot_landed, stored_slot_sent, time_latency_ms
             );
 
@@ -483,7 +834,7 @@ async fn main() -> Result<()> {
                     "pinger_region": pinger_region,
                 });
 
-                info!("[TX] VA Payload {}", payload);
+                info!("[TX] VA Payload {:?}", payload);
 
                 if !skip_validators_app {
                     info!("[TX] Sending metrics to Validators.app...");
@@ -502,13 +853,16 @@ async fn main() -> Result<()> {
                                 info!("[TX] Successfully sent metrics to Validators.app");
                             } else {
                                 error!(
-                                    "[TX] Failed to send to Validators.app - Status: {:?}",
-                                    response.status()
+                                    "[TX] Failed to send to Validators.app for signature {:?} - Status: {:?}",
+                                    signature, response.status()
                                 );
                             }
                         }
                         Err(e) => {
-                            error!("[TX] Error sending to Validators.app: {:?}", e);
+                            error!(
+                                "[TX] Error sending to Validators.app for signature {:?}: {:?}",
+                                signature, e
+                            );
                         }
                     }
                 }
@@ -527,7 +881,7 @@ async fn main() -> Result<()> {
             }
         } else {
             warn!(
-                "[TX] Transaction {} not confirmed or failed after 20 seconds",
+                "[TX] Transaction {:?} not confirmed or failed after 20 seconds",
                 signature
             );
         }

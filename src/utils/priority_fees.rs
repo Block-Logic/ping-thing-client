@@ -45,7 +45,7 @@ pub async fn watch_prioritization_fees(
     percentile: u16,
 ) -> Result<()> {
     info!(
-        "[Priority Fees Watcher] Starting with percentile: {}",
+        "[Priority Fees Watcher] Starting with percentile: {:?}",
         percentile
     );
 
@@ -97,7 +97,7 @@ pub async fn watch_prioritization_fees(
 
                                 if previous_fee != Some(max_fee) {
                                     debug!(
-                                        "[Priority Fees Watcher] Updated priority fee: {} (previous: {:?})",
+                                        "[Priority Fees Watcher] Updated priority fee: {:?} (previous: {:?})",
                                         max_fee, previous_fee
                                     );
                                 }
@@ -107,20 +107,23 @@ pub async fn watch_prioritization_fees(
                         }
                         Err(e) => {
                             error!(
-                                "[Priority Fees Watcher] Failed to parse RPC response: {:?}",
-                                e
+                                "[Priority Fees Watcher] Failed to parse RPC response from {:?}: {:?}",
+                                rpc_endpoint, e
                             );
                         }
                     }
                 } else {
                     error!(
-                        "[Priority Fees Watcher] RPC request failed with status: {:?}",
-                        response.status()
+                        "[Priority Fees Watcher] RPC request to {:?} failed with status: {:?}",
+                        rpc_endpoint, response.status()
                     );
                 }
             }
             Err(e) => {
-                error!("[Priority Fees Watcher] HTTP request error: {:?}", e);
+                error!(
+                    "[Priority Fees Watcher] HTTP request to {:?} failed: {:?}",
+                    rpc_endpoint, e
+                );
                 // println!("{:?}", e)
             }
         }

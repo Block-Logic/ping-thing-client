@@ -77,7 +77,10 @@ pub async fn watch_blockhash(
                                             match <[u8; 32]>::try_from(decoded.as_slice()) {
                                                 Ok(arr) => arr,
                                                 Err(_) => {
-                                                    error!("[Blockhash Watcher] Failed to convert decoded blockhash to array");
+                                                    error!(
+                                                        "[Blockhash Watcher] Failed to convert decoded blockhash to array for blockhash {:?} with length {:?}",
+                                                        blockhash_str, decoded.len()
+                                                    );
                                                     continue;
                                                 }
                                             }
