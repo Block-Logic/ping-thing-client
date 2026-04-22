@@ -336,6 +336,12 @@ async fn main() -> Result<()> {
         .unwrap_or(false);
     info!("VERBOSE_LOG: {:?}", verbose_log);
 
+    let skip_preflight = std::env::var("SKIP_PREFLIGHT")
+        .or_else(|_| std::env::var("skipPreflight"))
+        .map(|v| v.eq_ignore_ascii_case("true"))
+        .unwrap_or(true);
+    info!("SKIP_PREFLIGHT: {:?}", skip_preflight);
+
     let commitment_str = std::env::var("COMMITMENT").unwrap_or_else(|_| "confirmed".to_string());
     info!("COMMITMENT: {:?}", commitment_str);
     let commitment = parse_commitment(&commitment_str)?;
@@ -633,7 +639,7 @@ async fn main() -> Result<()> {
             rpc_client.as_ref(),
             &tx,
             RpcSendTransactionConfig {
-                skip_preflight: true,
+                skip_preflight,
                 max_retries: Some(0),
                 ..Default::default()
             },
@@ -742,7 +748,7 @@ async fn main() -> Result<()> {
                         rpc_client.as_ref(),
                         &tx,
                         RpcSendTransactionConfig {
-                            skip_preflight: true,
+                            skip_preflight,
                             max_retries: Some(0),
                             ..Default::default()
                         },
